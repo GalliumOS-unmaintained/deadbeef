@@ -1,0 +1,9 @@
+#! /usr/bin/make -f
+
+export DH_ALWAYS_EXCLUDE := README
+
+%:
+	dh $@
+
+override_dh_compress:
+	dh_compress -XChangeLog -XCOPYING.GPLv2 -XCOPYING.LGPLv2.1

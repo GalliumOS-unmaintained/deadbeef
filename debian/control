@@ -1,0 +1,72 @@
+Source: deadbeef
+Section: sound
+Priority: optional
+Maintainer: starws <starws.box@gmail.com>
+Homepage: http://deadbeef.sourceforge.net/
+Standards-Version: 3.9.5
+Build-Depends: debhelper (>= 7.0.50),
+               quilt (>= 0.46.7),
+               intltool (>= 0.40.0),
+               autotools-dev,
+               libasound2-dev,
+               libcddb2-dev,
+               libcdio-dev,
+               libcurl4-gnutls-dev,
+               libflac-dev,
+               libgtk2.0-dev,
+               libmad0-dev,
+               libogg-dev,
+               libsamplerate0-dev,
+               libsndfile1-dev,
+               libvorbis-dev,
+               libwavpack-dev,
+               libavformat-dev,
+               libavcodec-dev,
+               libavutil-dev,
+               libpulse-dev,
+               libdbus-1-dev,
+               libpango1.0-dev,
+               libfaad-dev,
+               libimlib2-dev,
+               libzip-dev,
+               zlib1g-dev,
+               libx11-dev,
+               yasm,
+               libgtk-3-dev
+
+Package: deadbeef-plugins-dev
+Section: libdevel
+Architecture: all
+Depends: deadbeef (= ${source:Version}), ${misc:Depends}
+Description: DeaDBeeF plugins development files
+ This package contains all supplementary files you need to develop your plugins for DeaDBeeF audio player.
+
+Package: deadbeef
+Section: sound
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: Audio player for GNU/Linux systems with X11
+ Main features:
+  * audio formats supported: mp3, ogg vorbis, flac, ape, wv, wav, aac, alac, tta,
+    MPC, Opus, audio CD
+  * ID3v1, ID3v2.2/2.3/2.4, APEv2, xing/info and cuesheet tags support
+  * utf8/cp1251/iso8859-1/GBK/shift-JIS charsets autodetection in
+    cuesheets and id3 tags
+  * sid and some popular chiptune formats like nsf
+  * tracker modules like mod, s3m, it, xm, etc
+  * customizable GTK user interface layout
+  * no GNOME or KDE dependencies - just GTK and several small libraries
+  * last.fm scrobbling
+  * radio stream playback
+  * customizable keyboard shortcuts
+  * converter plugin
+  * pulseaudio, OSS and ALSA output
+  * m3u/PLS playlists, OSD notify and equalizer plugins
+
+Package: deadbeef-dbg
+Section: debug
+Priority: extra
+Architecture: any
+Depends: deadbeef (= ${binary:Version}), ${misc:Depends}
+Description: DeaDBeeF gdb debugging symbols package
+ This package contains gdb debugging symbols for the deadbeef package.
