@@ -14,6 +14,7 @@
 
 @SET_MAKE@
 
+
 VPATH = @srcdir@
 am__is_gnu_make = test -n '$(MAKEFILE_LIST)' && test -n '$(MAKELEVEL)'
 am__make_running_with_option = \
@@ -80,7 +81,7 @@ build_triplet = @build@
 host_triplet = @host@
 subdir = plugins/artwork
 DIST_COMMON = $(srcdir)/Makefile.in $(srcdir)/Makefile.am \
-	$(top_srcdir)/depcomp COPYING
+	$(top_srcdir)/depcomp $(am__sdk_HEADERS_DIST) COPYING
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
 am__aclocal_m4_deps = $(top_srcdir)/m4/codeset.m4 \
 	$(top_srcdir)/m4/fcntl-o.m4 $(top_srcdir)/m4/gettext.m4 \
@@ -135,7 +136,7 @@ am__uninstall_files_from_dir = { \
     || { echo " ( cd '$$dir' && rm -f" $$files ")"; \
          $(am__cd) "$$dir" && rm -f $$files; }; \
   }
-am__installdirs = "$(DESTDIR)$(pkglibdir)"
+am__installdirs = "$(DESTDIR)$(pkglibdir)" "$(DESTDIR)$(sdkdir)"
 LTLIBRARIES = $(pkglib_LTLIBRARIES)
 am__DEPENDENCIES_1 =
 @HAVE_ARTWORK_TRUE@@HAVE_IMLIB2_FALSE@am__DEPENDENCIES_2 =  \
@@ -149,13 +150,17 @@ am__DEPENDENCIES_1 =
 @HAVE_ARTWORK_TRUE@@HAVE_OGG_TRUE@	$(am__DEPENDENCIES_1)
 @HAVE_ARTWORK_TRUE@artwork_la_DEPENDENCIES = $(am__DEPENDENCIES_2) \
 @HAVE_ARTWORK_TRUE@	$(am__DEPENDENCIES_3) $(am__DEPENDENCIES_4)
-am__artwork_la_SOURCES_DIST = artwork.c artwork.h albumartorg.c \
-	albumartorg.h lastfm.c lastfm.h wos.c wos.h escape.c escape.h
+am__artwork_la_SOURCES_DIST = artwork.c artwork.h cache.c cache.h \
+	artwork_internal.c artwork_internal.h musicbrainz.c \
+	musicbrainz.h albumartorg.c albumartorg.h lastfm.c lastfm.h \
+	wos.c wos.h escape.c escape.h
 @ARTWORK_USE_VFS_CURL_TRUE@@HAVE_ARTWORK_TRUE@am__objects_1 =  \
+@ARTWORK_USE_VFS_CURL_TRUE@@HAVE_ARTWORK_TRUE@	musicbrainz.lo \
 @ARTWORK_USE_VFS_CURL_TRUE@@HAVE_ARTWORK_TRUE@	albumartorg.lo \
 @ARTWORK_USE_VFS_CURL_TRUE@@HAVE_ARTWORK_TRUE@	lastfm.lo wos.lo \
 @ARTWORK_USE_VFS_CURL_TRUE@@HAVE_ARTWORK_TRUE@	escape.lo
-@HAVE_ARTWORK_TRUE@am_artwork_la_OBJECTS = artwork.lo $(am__objects_1)
+@HAVE_ARTWORK_TRUE@am_artwork_la_OBJECTS = artwork.lo cache.lo \
+@HAVE_ARTWORK_TRUE@	artwork_internal.lo $(am__objects_1)
 artwork_la_OBJECTS = $(am_artwork_la_OBJECTS)
 AM_V_lt = $(am__v_lt_@AM_V@)
 am__v_lt_ = $(am__v_lt_@AM_DEFAULT_V@)
@@ -206,6 +211,8 @@ am__can_run_installinfo = \
     n|no|NO) false;; \
     *) (install-info --version) >/dev/null 2>&1;; \
   esac
+am__sdk_HEADERS_DIST = artwork.h
+HEADERS = $(sdk_HEADERS)
 am__tagged_files = $(HEADERS) $(SOURCES) $(TAGS_FILES) $(LISP)
 # Read a list of newline-separated strings from the standard input,
 # and print each of them once, without duplicates.  Input order is
@@ -326,6 +333,8 @@ INTL_DEFAULT_VERBOSITY = @INTL_DEFAULT_VERBOSITY@
 INTL_LIBS = @INTL_LIBS@
 INTL_LIBTOOL_SUFFIX_PREFIX = @INTL_LIBTOOL_SUFFIX_PREFIX@
 INTL_MACOSX_LIBS = @INTL_MACOSX_LIBS@
+JANSSON_CFLAGS = @JANSSON_CFLAGS@
+JANSSON_LIBS = @JANSSON_LIBS@
 JPEG_DEPS_CFLAGS = @JPEG_DEPS_CFLAGS@
 JPEG_DEPS_LIBS = @JPEG_DEPS_LIBS@
 LD = @LD@
@@ -358,6 +367,8 @@ MAINT = @MAINT@
 MAKEINFO = @MAKEINFO@
 MANIFEST_TOOL = @MANIFEST_TOOL@
 MKDIR_P = @MKDIR_P@
+MPG123_CFLAGS = @MPG123_CFLAGS@
+MPG123_LIBS = @MPG123_LIBS@
 MSGFMT = @MSGFMT@
 MSGFMT_015 = @MSGFMT_015@
 MSGMERGE = @MSGMERGE@
@@ -477,13 +488,14 @@ target_alias = @target_alias@
 top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
-@HAVE_ARTWORK_TRUE@artworkdir = $(libdir)/$(PACKAGE)
 @HAVE_ARTWORK_TRUE@pkglib_LTLIBRARIES = artwork.la
 @HAVE_ARTWORK_TRUE@@HAVE_OGG_TRUE@ogg_def = -DUSE_OGG=1
 @HAVE_ARTWORK_TRUE@@HAVE_OGG_TRUE@ogg_libs = $(OGG_LIBS)
 @ARTWORK_USE_VFS_CURL_TRUE@@HAVE_ARTWORK_TRUE@artwork_net_cflags = -DUSE_VFS_CURL
-@ARTWORK_USE_VFS_CURL_TRUE@@HAVE_ARTWORK_TRUE@artwork_net_sources = albumartorg.c albumartorg.h lastfm.c lastfm.h wos.c wos.h escape.c escape.h
-@HAVE_ARTWORK_TRUE@artwork_la_SOURCES = artwork.c artwork.h $(artwork_net_sources)
+@ARTWORK_USE_VFS_CURL_TRUE@@HAVE_ARTWORK_TRUE@artwork_net_sources = musicbrainz.c musicbrainz.h albumartorg.c albumartorg.h lastfm.c lastfm.h wos.c wos.h escape.c escape.h
+@HAVE_ARTWORK_TRUE@sdkdir = $(pkgincludedir)
+@HAVE_ARTWORK_TRUE@sdk_HEADERS = artwork.h
+@HAVE_ARTWORK_TRUE@artwork_la_SOURCES = artwork.c artwork.h cache.c cache.h artwork_internal.c artwork_internal.h $(artwork_net_sources)
 @HAVE_ARTWORK_TRUE@artwork_la_LDFLAGS = -module -avoid-version
 @HAVE_ARTWORK_TRUE@@HAVE_IMLIB2_FALSE@ARTWORK_DEPS = $(JPEG_DEPS_LIBS) $(PNG_DEPS_LIBS)
 @HAVE_ARTWORK_TRUE@@HAVE_IMLIB2_TRUE@ARTWORK_DEPS = $(IMLIB2_DEPS_LIBS)
@@ -574,8 +586,11 @@ distclean-compile:
 
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/albumartorg.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/artwork.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/artwork_internal.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/cache.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/escape.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/lastfm.Plo@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/musicbrainz.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/wos.Plo@am__quote@
 
 .c.o:
@@ -604,6 +619,27 @@ mostlyclean-libtool:
 
 clean-libtool:
 	-rm -rf .libs _libs
+install-sdkHEADERS: $(sdk_HEADERS)
+	@$(NORMAL_INSTALL)
+	@list='$(sdk_HEADERS)'; test -n "$(sdkdir)" || list=; \
+	if test -n "$$list"; then \
+	  echo " $(MKDIR_P) '$(DESTDIR)$(sdkdir)'"; \
+	  $(MKDIR_P) "$(DESTDIR)$(sdkdir)" || exit 1; \
+	fi; \
+	for p in $$list; do \
+	  if test -f "$$p"; then d=; else d="$(srcdir)/"; fi; \
+	  echo "$$d$$p"; \
+	done | $(am__base_list) | \
+	while read files; do \
+	  echo " $(INSTALL_HEADER) $$files '$(DESTDIR)$(sdkdir)'"; \
+	  $(INSTALL_HEADER) $$files "$(DESTDIR)$(sdkdir)" || exit $$?; \
+	done
+
+uninstall-sdkHEADERS:
+	@$(NORMAL_UNINSTALL)
+	@list='$(sdk_HEADERS)'; test -n "$(sdkdir)" || list=; \
+	files=`for p in $$list; do echo $$p; done | sed -e 's|^.*/||'`; \
+	dir='$(DESTDIR)$(sdkdir)'; $(am__uninstall_files_from_dir)
 
 ID: $(am__tagged_files)
 	$(am__define_uniq_tagged_files); mkid -fID $$unique
@@ -689,9 +725,9 @@ distdir: $(DISTFILES)
 	done
 check-am: all-am
 check: check-am
-all-am: Makefile $(LTLIBRARIES)
+all-am: Makefile $(LTLIBRARIES) $(HEADERS)
 installdirs:
-	for dir in "$(DESTDIR)$(pkglibdir)"; do \
+	for dir in "$(DESTDIR)$(pkglibdir)" "$(DESTDIR)$(sdkdir)"; do \
 	  test -z "$$dir" || $(MKDIR_P) "$$dir"; \
 	done
 install: install-am
@@ -747,7 +783,7 @@ info: info-am
 
 info-am:
 
-install-data-am:
+install-data-am: install-sdkHEADERS
 
 install-dvi: install-dvi-am
 
@@ -793,7 +829,7 @@ ps: ps-am
 
 ps-am:
 
-uninstall-am: uninstall-pkglibLTLIBRARIES
+uninstall-am: uninstall-pkglibLTLIBRARIES uninstall-sdkHEADERS
 
 .MAKE: install-am install-strip
 
@@ -806,11 +842,11 @@ uninstall-am: uninstall-pkglibLTLIBRARIES
 	install-exec-am install-html install-html-am install-info \
 	install-info-am install-man install-pdf install-pdf-am \
 	install-pkglibLTLIBRARIES install-ps install-ps-am \
-	install-strip installcheck installcheck-am installdirs \
-	maintainer-clean maintainer-clean-generic mostlyclean \
-	mostlyclean-compile mostlyclean-generic mostlyclean-libtool \
-	pdf pdf-am ps ps-am tags tags-am uninstall uninstall-am \
-	uninstall-pkglibLTLIBRARIES
+	install-sdkHEADERS install-strip installcheck installcheck-am \
+	installdirs maintainer-clean maintainer-clean-generic \
+	mostlyclean mostlyclean-compile mostlyclean-generic \
+	mostlyclean-libtool pdf pdf-am ps ps-am tags tags-am uninstall \
+	uninstall-am uninstall-pkglibLTLIBRARIES uninstall-sdkHEADERS
 
 
 # Tell versions [3.59,3.63) of GNU make to not export all variables.

@@ -1,21 +1,26 @@
 /*
-    DeaDBeeF - The Ultimate Music Player
-    Copyright (C) 2009-2013 Alexey Yakovenko <waker@users.sourceforge.net>
+    DeaDBeeF -- the music player
+    Copyright (C) 2009-2015 Alexey Yakovenko and other contributors
 
-    This program is free software; you can redistribute it and/or
-    modify it under the terms of the GNU General Public License
-    as published by the Free Software Foundation; either version 2
-    of the License, or (at your option) any later version.
-    
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
-    
-    You should have received a copy of the GNU General Public License
-    along with this program; if not, write to the Free Software
-    Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+    This software is provided 'as-is', without any express or implied
+    warranty.  In no event will the authors be held liable for any damages
+    arising from the use of this software.
+
+    Permission is granted to anyone to use this software for any purpose,
+    including commercial applications, and to alter it and redistribute it
+    freely, subject to the following restrictions:
+
+    1. The origin of this software must not be misrepresented; you must not
+     claim that you wrote the original software. If you use this software
+     in a product, an acknowledgment in the product documentation would be
+     appreciated but is not required.
+
+    2. Altered source versions must be plainly marked as such, and must not be
+     misrepresented as being the original software.
+
+    3. This notice may not be removed or altered from any source distribution.
 */
+
 #ifndef __COVERART_H
 #define __COVERART_H
 
@@ -27,15 +32,24 @@
 //
 // if the image is not available immediately -- callback will be called later
 //
-// if cover art loader plugin is not available -- NULL will be returned
+// if  artwork plugin is not available -- NULL will be returned and no callbacks made
 GdkPixbuf *
-get_cover_art_callb (const char *fname, const char *artist, const char *album, int width, void (*cover_avail_callback) (void *user_data), void *user_data);
+get_cover_art_callb (const const char *fname, const char *artist, const char *album, int width, void (*cover_avail_callback) (void *user_data), void *user_data);
+GdkPixbuf *
+get_cover_art_primary (const const char *fname, const char *artist, const char *album, int width, void (*cover_avail_callback) (void *user_data), void *user_data);
+GdkPixbuf *
+get_cover_art_primary_by_size (const const char *fname, const char *artist, const char *album, int width, int height, void (*cover_avail_callback) (void *user_data), void *user_data);
+GdkPixbuf *
+get_cover_art_thumb (const const char *fname, const char *artist, const char *album, int width, void (*cover_avail_callback) (void *user_data), void *user_data);
 
 void
 coverart_reset_queue (void);
 
 void
 cover_art_init (void);
+
+void
+cover_art_disconnect (void);
 
 void
 cover_art_free (void);
@@ -50,9 +64,6 @@ cover_get_default_pixbuf (void);
 
 int
 gtkui_is_default_pixbuf (GdkPixbuf *pb);
-
-int
-gtkui_cover_message (uint32_t id, uintptr_t ctx, uint32_t p1, uint32_t p2);
 
 #endif
 

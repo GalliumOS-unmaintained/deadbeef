@@ -1,20 +1,24 @@
 /*
-    DeaDBeeF - The Ultimate Music Player
-    Copyright (C) 2009-2011 Alexey Yakovenko <waker@users.sourceforge.net>
+    DeaDBeeF -- the music player
+    Copyright (C) 2009-2015 Alexey Yakovenko and other contributors
 
-    This program is free software; you can redistribute it and/or
-    modify it under the terms of the GNU General Public License
-    as published by the Free Software Foundation; either version 2
-    of the License, or (at your option) any later version.
-    
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
-    
-    You should have received a copy of the GNU General Public License
-    along with this program; if not, write to the Free Software
-    Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+    This software is provided 'as-is', without any express or implied
+    warranty.  In no event will the authors be held liable for any damages
+    arising from the use of this software.
+
+    Permission is granted to anyone to use this software for any purpose,
+    including commercial applications, and to alter it and redistribute it
+    freely, subject to the following restrictions:
+
+    1. The origin of this software must not be misrepresented; you must not
+     claim that you wrote the original software. If you use this software
+     in a product, an acknowledgment in the product documentation would be
+     appreciated but is not required.
+
+    2. Altered source versions must be plainly marked as such, and must not be
+     misrepresented as being the original software.
+
+    3. This notice may not be removed or altered from any source distribution.
 */
 
 #include <stdlib.h>
@@ -106,6 +110,7 @@ typedef struct {
     ddb_gtkui_widget_t base;
     DdbListview *list;
     int hideheaders;
+    int width;
 } w_playlist_t;
 
 typedef struct {
@@ -121,19 +126,23 @@ typedef struct {
 typedef struct {
     ddb_gtkui_widget_t base;
     int clicked_page;
+    int active;
+    int num_tabs;
+    char **titles;
 } w_tabs_t;
 
 typedef struct {
     ddb_gtkui_widget_t base;
     GtkWidget *tree;
+    guint refresh_timeout;
 } w_selproperties_t;
 
 typedef struct {
     ddb_gtkui_widget_t base;
     GtkWidget *drawarea;
-    int cover_size;
-    int new_cover_size;
-    guint cover_refresh_timeout_id;
+    int widget_height;
+    int widget_width;
+    guint load_timeout_id;
 } w_coverart_t;
 
 typedef struct {
@@ -229,7 +238,6 @@ w_init (void) {
 
 void
 w_free (void) {
-    w_save ();
     w_creator_t *next = NULL;
     for (w_creator_t *cr = w_creators; cr; cr = next) {
         next = cr->next;
@@ -757,7 +765,11 @@ w_button_press_event (GtkWidget *widget, GdkEventButton *event, gpointer user_da
 
     if (GTK_IS_CONTAINER (widget)) {
         // hide all children
+#if !GTK_CHECK_VERSION(3,0,0)
         gtk_widget_size_request (widget, &prev_req);
+#else
+        gtk_widget_get_preferred_size (widget, NULL, &prev_req);
+#endif
         gtk_container_foreach (GTK_CONTAINER (widget), hide_widget, NULL);
         gtk_widget_set_size_request (widget, prev_req.width, prev_req.height);
     }
@@ -1048,9 +1060,6 @@ w_placeholder_create (void) {
 // dummy widget
 static const char *
 w_dummy_load (struct ddb_gtkui_widget_s *w, const char *type, const char *s) {
-    if (strcmp (type, "dummy")) {
-        return NULL;
-    }
     w_dummy_t *b = (w_dummy_t *)w;
     char key[MAX_TOKEN], val[MAX_TOKEN];
     for (;;) {
@@ -1418,24 +1427,81 @@ w_hsplitter_create (void) {
 }
 
 ///// tabs widget
-static gboolean
-tab_button_press_event (GtkWidget *widget, GdkEventButton *event, gpointer user_data);
 
 static void
-on_remove_tab_activate (GtkMenuItem *menuitem, gpointer user_data) {
-    w_tabs_t *w = user_data;
-
-    int i = 0;
-    for (ddb_gtkui_widget_t *c = w->base.children; c; c = c->next, i++) {
-        if (i == w->clicked_page) {
-            w_remove ((ddb_gtkui_widget_t *)w, c);
-            return;
+w_tabs_destroy (ddb_gtkui_widget_t *w) {
+    w_tabs_t *s = (w_tabs_t *)w;
+    if (s->titles) {
+        for (int i = 0; i < s->num_tabs; i++) {
+            if (s->titles[i]) {
+                free (s->titles[i]);
+            }
         }
+        free (s->titles);
     }
 }
 
+const char *
+w_tabs_load (struct ddb_gtkui_widget_s *widget, const char *type, const char *s) {
+    w_tabs_t *w = (w_tabs_t *)widget;
+    if (strcmp (type, "tabs")) {
+        return NULL;
+    }
+
+    char key[MAX_TOKEN], val[MAX_TOKEN];
+    for (;;) {
+        get_keyvalue (s,key,val);
+
+        if (!strcmp (key, "active")) {
+            w->active = atoi (val);
+            continue;
+        }
+        if (!strcmp (key, "num_tabs")) {
+            w->num_tabs = atoi (val);
+            w->titles = malloc (w->num_tabs * sizeof (char *));
+            continue;
+        }
+        for (int i = 0; i < w->num_tabs; i++) {
+            char tab_name[100];
+            snprintf (tab_name, sizeof (tab_name), "tab%03d", i);
+            if (!strcmp (key, tab_name)) {
+                w->titles[i] = strdup (val);
+                continue;
+            }
+        }
+    }
+
+    return s;
+}
+
+void
+w_tabs_save (struct ddb_gtkui_widget_s *widget, char *s, int sz) {
+    w_tabs_t *w = (w_tabs_t *)widget;
+    int active = gtk_notebook_get_current_page (GTK_NOTEBOOK (w->base.widget));
+    int num_pages = gtk_notebook_get_n_pages (GTK_NOTEBOOK (w->base.widget));
+    char spos[1000];
+    char *pp = spos;
+    int ss = sizeof (spos);
+    int n;
+
+    n = snprintf (spos, sizeof (spos), " active=%d num_tabs=%d", active, num_pages);
+    ss -= n;
+    pp += n;
+    for (int i = 0; i < num_pages; i++) {
+        GtkWidget *child = gtk_notebook_get_nth_page (GTK_NOTEBOOK (w->base.widget), i);
+        const char *text = gtk_notebook_get_tab_label_text (GTK_NOTEBOOK (w->base.widget), child);
+        char *esctext = parser_escape_string (text);
+        n = snprintf (pp, ss, " tab%03d=\"%s\"", i, esctext);
+        free (esctext);
+        ss -= n;
+        pp += n;
+    }
+    strncat (s, spos, sz);
+}
+
 static void
-on_add_tab_activate (GtkMenuItem *menuitem, gpointer user_data) {
+tabs_add_tab (gpointer user_data)
+{
     w_tabs_t *w = user_data;
 
     ddb_gtkui_widget_t *ph;
@@ -1450,28 +1516,84 @@ on_add_tab_activate (GtkMenuItem *menuitem, gpointer user_data) {
 }
 
 static void
+tabs_remove_tab (gpointer user_data, int tab)
+{
+    w_tabs_t *w = user_data;
+    int i = 0;
+    int num_pages = gtk_notebook_get_n_pages (GTK_NOTEBOOK (w->base.widget));
+    for (ddb_gtkui_widget_t *c = w->base.children; c; c = c->next, i++) {
+        if (i == tab) {
+            w_remove ((ddb_gtkui_widget_t *)w, c);
+            w_destroy (c);
+            if (num_pages == 1) {
+                // if last tab was deleted add a new placeholder tab
+                tabs_add_tab (w);
+            }
+            return;
+        }
+    }
+}
+
+static gboolean
+tab_button_press_event (GtkWidget *widget, GdkEventButton *event, gpointer user_data);
+
+static void
+on_rename_tab_activate (GtkMenuItem *menuitem, gpointer user_data) {
+    w_tabs_t *w = user_data;
+
+    GtkWidget *dlg = create_entrydialog ();
+    gtk_dialog_set_default_response (GTK_DIALOG (dlg), GTK_RESPONSE_OK);
+    gtk_window_set_title (GTK_WINDOW (dlg), _("Rename tab"));
+    GtkWidget *e;
+    e = lookup_widget (dlg, "title_label");
+    gtk_label_set_text (GTK_LABEL(e), _("Title:"));
+    e = lookup_widget (dlg, "title");
+    int active = gtk_notebook_get_current_page (GTK_NOTEBOOK (w->base.widget));
+    GtkWidget *child = gtk_notebook_get_nth_page (GTK_NOTEBOOK (w->base.widget), active);
+    gtk_entry_set_text (GTK_ENTRY (e), gtk_notebook_get_tab_label_text (GTK_NOTEBOOK (w->base.widget), child));
+    int res = gtk_dialog_run (GTK_DIALOG (dlg));
+    if (res == GTK_RESPONSE_OK) {
+        gtk_notebook_set_tab_label_text (GTK_NOTEBOOK (w->base.widget), child, gtk_entry_get_text (GTK_ENTRY (e)));
+    }
+    gtk_widget_destroy (dlg);
+}
+
+static void
+on_remove_tab_activate (GtkMenuItem *menuitem, gpointer user_data) {
+    w_tabs_t *w = user_data;
+    tabs_remove_tab (w, w->clicked_page);
+}
+
+static void
+on_add_tab_activate (GtkMenuItem *menuitem, gpointer user_data) {
+    tabs_add_tab (user_data);
+}
+
+static void
 on_move_tab_left_activate (GtkMenuItem *menuitem, gpointer user_data) {
     w_tabs_t *w = user_data;
     if (w->clicked_page <= 0) {
         return;
     }
-
     // remove and save widget
     int i = 0;
     ddb_gtkui_widget_t *newchild = NULL;
     ddb_gtkui_widget_t *prev = NULL;
+    char *title;
     for (ddb_gtkui_widget_t *c = w->base.children; c; c = c->next, i++) {
         if (i == w->clicked_page) {
             char buf[20000] = "";
             save_widget_to_string (buf, sizeof (buf), c);
-            w_create_from_string (buf, &newchild);
-
+            GtkWidget *child = gtk_notebook_get_nth_page (GTK_NOTEBOOK (w->base.widget), i);
+            title = strdup (gtk_notebook_get_tab_label_text (GTK_NOTEBOOK (w->base.widget), child));
             w_remove ((ddb_gtkui_widget_t *)w, c);
+            w_destroy (c);
+            w_create_from_string (buf, &newchild);
             break;
         }
     }
     if (!newchild) {
-        return;
+        goto out;
     }
 
     // add new child at new position
@@ -1487,21 +1609,30 @@ on_move_tab_left_activate (GtkMenuItem *menuitem, gpointer user_data) {
                 newchild->next = w->base.children;
                 w->base.children = newchild;
             }
-            GtkWidget *eventbox = gtk_event_box_new ();
-            GtkWidget *label = gtk_label_new (newchild->type);
-            gtk_widget_show (eventbox);
-            g_object_set_data (G_OBJECT (eventbox), "owner", w);
-            g_signal_connect ((gpointer) eventbox, "button_press_event", G_CALLBACK (tab_button_press_event), newchild->widget);
+            GtkWidget *label = gtk_label_new (title);
             gtk_widget_show (label);
-            gtk_container_add (GTK_CONTAINER (eventbox), label);
             gtk_widget_show (newchild->widget);
 
-            gtk_notebook_insert_page (GTK_NOTEBOOK (w->base.widget), newchild->widget, eventbox, w->clicked_page-1);
+            gtk_notebook_insert_page (GTK_NOTEBOOK (w->base.widget), newchild->widget, label, w->clicked_page-1);
+#if GTK_CHECK_VERSION(3,0,0)
+            gtk_label_set_ellipsize (GTK_LABEL (label), PANGO_ELLIPSIZE_END);
+            gtk_misc_set_padding (GTK_MISC (label), 0, 0);
+            gtk_container_child_set (GTK_CONTAINER (w->base.widget),
+                    newchild->widget,
+                    "tab-expand", TRUE,
+                    "tab-fill", TRUE,
+                    NULL);
+#endif
             gtk_notebook_set_current_page (GTK_NOTEBOOK (w->base.widget), w->clicked_page-1);
             w->clicked_page--;
             break;
         }
         prev = c;
+    }
+
+out:
+    if (title) {
+        free (title);
     }
 }
 
@@ -1509,76 +1640,80 @@ static void
 on_move_tab_right_activate (GtkMenuItem *menuitem, gpointer user_data) {
     w_tabs_t *w = user_data;
 
-    int i = 0;
-    for (ddb_gtkui_widget_t *c = w->base.children; c; c = c->next, i++);
-    if (w->clicked_page >= i)
+    int num_pages = gtk_notebook_get_n_pages (GTK_NOTEBOOK (w->base.widget));
+    if (w->clicked_page == num_pages - 1) {
         return;
+    }
 
     gtk_notebook_set_current_page (GTK_NOTEBOOK (w->base.widget), ++w->clicked_page);
     on_move_tab_left_activate (menuitem, user_data);
     gtk_notebook_set_current_page (GTK_NOTEBOOK (w->base.widget), ++w->clicked_page);
 }
 
-static gboolean
-tab_button_press_event (GtkWidget *widget, GdkEventButton *event, gpointer user_data) {
-    if (event->button != 3) {
-        return FALSE;
-    }
-    // user_data is child widget
-    if (design_mode) {
-        w_tabs_t *w = (w_tabs_t *)g_object_get_data (G_OBJECT (widget), "owner");
-        GtkWidget *menu;
-        GtkWidget *item;
-        menu = gtk_menu_new ();
+static void
+on_tab_popup_menu (GtkWidget *widget, gpointer user_data)
+{
+    w_tabs_t *w = user_data;
+    GtkWidget *menu;
+    GtkWidget *item;
+    menu = gtk_menu_new ();
 
-        item = gtk_menu_item_new_with_mnemonic (_("Move tab left"));
-        gtk_widget_show (item);
-        gtk_container_add (GTK_CONTAINER (menu), item);
-        g_signal_connect ((gpointer) item, "activate",
-                G_CALLBACK (on_move_tab_left_activate),
-                w);
+    item = gtk_menu_item_new_with_mnemonic (_("Add new tab"));
+    gtk_widget_show (item);
+    gtk_container_add (GTK_CONTAINER (menu), item);
+    g_signal_connect ((gpointer) item, "activate",
+            G_CALLBACK (on_add_tab_activate),
+            w);
 
-        item = gtk_menu_item_new_with_mnemonic (_("Move tab right"));
-        gtk_widget_show (item);
-        gtk_container_add (GTK_CONTAINER (menu), item);
-        g_signal_connect ((gpointer) item, "activate",
-                G_CALLBACK (on_move_tab_right_activate),
-                w);
+    item = gtk_menu_item_new_with_mnemonic (_("Rename tab"));
+    gtk_widget_show (item);
+    gtk_container_add (GTK_CONTAINER (menu), item);
+    g_signal_connect ((gpointer) item, "activate",
+            G_CALLBACK (on_rename_tab_activate),
+            w);
 
-        item = gtk_menu_item_new_with_mnemonic (_("Remove tab"));
-        gtk_widget_show (item);
-        gtk_container_add (GTK_CONTAINER (menu), item);
-        g_signal_connect ((gpointer) item, "activate",
-                G_CALLBACK (on_remove_tab_activate),
-                w);
+    item = gtk_menu_item_new_with_mnemonic (_("Move tab left"));
+    gtk_widget_show (item);
+    gtk_container_add (GTK_CONTAINER (menu), item);
+    g_signal_connect ((gpointer) item, "activate",
+            G_CALLBACK (on_move_tab_left_activate),
+            w);
 
-        item = gtk_menu_item_new_with_mnemonic (_("Rename tab"));
-        gtk_widget_show (item);
-        gtk_container_add (GTK_CONTAINER (menu), item);
+    item = gtk_menu_item_new_with_mnemonic (_("Move tab right"));
+    gtk_widget_show (item);
+    gtk_container_add (GTK_CONTAINER (menu), item);
+    g_signal_connect ((gpointer) item, "activate",
+            G_CALLBACK (on_move_tab_right_activate),
+            w);
 
-        w->clicked_page = gtk_notebook_page_num (GTK_NOTEBOOK (w->base.widget), user_data);
-        gtk_notebook_set_current_page (GTK_NOTEBOOK (w->base.widget), w->clicked_page);
+    item = gtk_menu_item_new_with_mnemonic (_("Remove tab"));
+    gtk_widget_show (item);
+    gtk_container_add (GTK_CONTAINER (menu), item);
+    g_signal_connect ((gpointer) item, "activate",
+            G_CALLBACK (on_remove_tab_activate),
+            w);
 
-        gtk_menu_popup (GTK_MENU (menu), NULL, NULL, NULL, widget, 0, gtk_get_current_event_time());
-        return TRUE;
-    }
-    return FALSE;
+    gtk_menu_popup (GTK_MENU (menu), NULL, NULL, NULL, w, 0, gtk_get_current_event_time());
 }
 
-void
+static void
 w_tabs_add (ddb_gtkui_widget_t *cont, ddb_gtkui_widget_t *child) {
-    GtkWidget *eventbox = gtk_event_box_new ();
     GtkWidget *label = gtk_label_new (child->type);
-    gtk_widget_show (eventbox);
-    g_object_set_data (G_OBJECT (eventbox), "owner", cont);
-    g_signal_connect ((gpointer) eventbox, "button_press_event", G_CALLBACK (tab_button_press_event), child->widget);
     gtk_widget_show (label);
-    gtk_container_add (GTK_CONTAINER (eventbox), label);
     gtk_widget_show (child->widget);
-    gtk_notebook_append_page (GTK_NOTEBOOK (cont->widget), child->widget, eventbox);
+    gtk_notebook_append_page (GTK_NOTEBOOK (cont->widget), child->widget, label);
+#if GTK_CHECK_VERSION(3,0,0)
+    gtk_label_set_ellipsize (GTK_LABEL (label), PANGO_ELLIPSIZE_END);
+    gtk_misc_set_padding (GTK_MISC (label), 0, 0);
+    gtk_container_child_set (GTK_CONTAINER (cont->widget),
+                           child->widget,
+                           "tab-expand", TRUE,
+                           "tab-fill", TRUE,
+                           NULL);
+#endif
 }
 
-void
+static void
 w_tabs_replace (ddb_gtkui_widget_t *cont, ddb_gtkui_widget_t *child, ddb_gtkui_widget_t *newchild) {
     int ntab = 0;
     ddb_gtkui_widget_t *prev = NULL;
@@ -1595,22 +1730,119 @@ w_tabs_replace (ddb_gtkui_widget_t *cont, ddb_gtkui_widget_t *child, ddb_gtkui_w
             gtk_notebook_remove_page (GTK_NOTEBOOK(cont->widget), ntab);
             c->widget = NULL;
             w_destroy (c);
-            GtkWidget *eventbox = gtk_event_box_new ();
             GtkWidget *label = gtk_label_new (newchild->type);
-            gtk_widget_show (eventbox);
-            g_object_set_data (G_OBJECT (eventbox), "owner", cont);
-            g_signal_connect ((gpointer) eventbox, "button_press_event", G_CALLBACK (tab_button_press_event), newchild->widget);
             gtk_widget_show (label);
-            gtk_container_add (GTK_CONTAINER (eventbox), label);
             gtk_widget_show (newchild->widget);
-            int pos = gtk_notebook_insert_page (GTK_NOTEBOOK (cont->widget), newchild->widget, eventbox, ntab);
+            int pos = gtk_notebook_insert_page (GTK_NOTEBOOK (cont->widget), newchild->widget, label, ntab);
+#if GTK_CHECK_VERSION(3,0,0)
+            gtk_label_set_ellipsize (GTK_LABEL (label), PANGO_ELLIPSIZE_END);
+            gtk_misc_set_padding (GTK_MISC (label), 0, 0);
+            gtk_container_child_set (GTK_CONTAINER (cont->widget),
+                           newchild->widget,
+                           "tab-expand", TRUE,
+                           "tab-fill", TRUE,
+                           NULL);
+#endif
             gtk_notebook_set_current_page (GTK_NOTEBOOK (cont->widget), pos);
             break;
         }
     }
 }
 
-void
+static gboolean
+get_event_coordinates_in_widget (GtkWidget *widget,
+			GdkEventButton  *event,
+			gint      *x,
+			gint      *y)
+{
+    GdkWindow *window = event->window;
+    gdouble tx, ty;
+    tx = event->x;
+    ty = event->y;
+
+    while (window && window != gtk_widget_get_window (widget)) {
+        gint window_x, window_y;
+        gdk_window_get_position (window, &window_x, &window_y);
+        tx += window_x;
+        ty += window_y;
+        window = gdk_window_get_parent (window);
+    }
+
+    if (window) {
+        *x = tx;
+        *y = ty;
+        return TRUE;
+    }
+    else {
+        return FALSE;
+    }
+}
+
+static gboolean
+on_tabs_button_press_event (GtkWidget      *notebook,
+                            GdkEventButton *event,
+                            gpointer   user_data)
+{
+    w_tabs_t *w = user_data;
+
+    int           page_num = 0;
+    GtkWidget     *page;
+    GtkWidget     *label_box;
+    GtkAllocation  alloc;
+    gboolean       close_tab;
+
+    int event_x, event_y;
+    if (!get_event_coordinates_in_widget (notebook, event, &event_x, &event_y)) {
+        // clicked outside the tabstrip (e.g. in one of its children)
+        return FALSE;
+    }
+
+    /* lookup the clicked tab */
+    while ((page = gtk_notebook_get_nth_page (GTK_NOTEBOOK (notebook), page_num)) != NULL)
+    {
+        label_box = gtk_notebook_get_tab_label (GTK_NOTEBOOK (notebook), page);
+        gtk_widget_get_allocation (label_box, &alloc);
+
+        if (event_x >= alloc.x && event_x < alloc.x + alloc.width
+                && event_y >= alloc.y && event_y < alloc.y + alloc.height)
+            break;
+
+        page_num++;
+    }
+    w->clicked_page = page_num;
+
+    if (event->type == GDK_BUTTON_PRESS) {
+        /* leave if no tab could be found */
+        if (page == NULL) {
+            return FALSE;
+        }
+
+        if (event->button == 2) {
+            /* check if we should close the tab */
+            if (design_mode) {
+                tabs_remove_tab (w, page_num);
+            }
+        }
+        else if (event->button == 3) {
+            /* update the current tab before we show the menu */
+            gtk_notebook_set_current_page (GTK_NOTEBOOK (notebook), page_num);
+
+            /* show the tab menu */
+            on_tab_popup_menu (notebook, user_data);
+            return TRUE;
+        }
+    }
+    else if (event->type == GDK_2BUTTON_PRESS) {
+        if (event->button == 1 && page == NULL && design_mode) {
+            // open new tab
+            tabs_add_tab (w);
+        }
+        return TRUE;
+    }
+    return FALSE;
+}
+
+static void
 w_tabs_initmenu (struct ddb_gtkui_widget_s *w, GtkWidget *menu) {
     GtkWidget *item;
     item = gtk_menu_item_new_with_mnemonic (_("Add new tab"));
@@ -1619,6 +1851,27 @@ w_tabs_initmenu (struct ddb_gtkui_widget_s *w, GtkWidget *menu) {
     g_signal_connect ((gpointer) item, "activate",
             G_CALLBACK (on_add_tab_activate),
             w);
+}
+
+static void
+w_tabs_init (ddb_gtkui_widget_t *base) {
+    w_tabs_t *w = (w_tabs_t *)base;
+    gtk_notebook_set_current_page (GTK_NOTEBOOK (w->base.widget), w->active);
+    if (w->titles) {
+        int page = 0;
+        while (page < w->num_tabs) {
+            GtkWidget *child = gtk_notebook_get_nth_page (GTK_NOTEBOOK (w->base.widget), page);
+            if (w->titles[page]) {
+                gtk_notebook_set_tab_label_text (GTK_NOTEBOOK (w->base.widget), child, w->titles[page]);
+#if GTK_CHECK_VERSION(3,0,0)
+                GtkLabel *label = GTK_LABEL(gtk_notebook_get_tab_label (GTK_NOTEBOOK (w->base.widget), child));
+                gtk_label_set_ellipsize (GTK_LABEL (label), PANGO_ELLIPSIZE_END);
+                gtk_misc_set_padding (GTK_MISC (label), 0, 0);
+#endif
+            }
+            page++;
+        }
+    }
 }
 
 ddb_gtkui_widget_t *
@@ -1630,23 +1883,30 @@ w_tabs_create (void) {
     w->base.remove = w_container_remove;
     w->base.replace = w_tabs_replace;
     w->base.initmenu = w_tabs_initmenu;
+    w->base.save = w_tabs_save;
+    w->base.load = w_tabs_load;
+    w->base.init = w_tabs_init;
+    w->base.destroy = w_tabs_destroy;
 
     ddb_gtkui_widget_t *ph1, *ph2, *ph3;
     ph1 = w_create ("placeholder");
     ph2 = w_create ("placeholder");
     ph3 = w_create ("placeholder");
 
+    gtk_notebook_set_scrollable (GTK_NOTEBOOK (w->base.widget), TRUE);
+
 #if !GTK_CHECK_VERSION(3,0,0)
     g_signal_connect ((gpointer) w->base.widget, "expose_event", G_CALLBACK (w_expose_event), w);
 #else
     g_signal_connect ((gpointer) w->base.widget, "draw", G_CALLBACK (w_draw_event), w);
 #endif
-    g_signal_connect ((gpointer) w->base.widget, "button_press_event", G_CALLBACK (w_button_press_event), w);
+    g_signal_connect ((gpointer) w->base.widget, "button_press_event", G_CALLBACK (on_tabs_button_press_event), w);
 
     w_append ((ddb_gtkui_widget_t*)w, ph1);
     w_append ((ddb_gtkui_widget_t*)w, ph2);
     w_append ((ddb_gtkui_widget_t*)w, ph3);
 
+    w_override_signals (w->base.widget, w);
     return (ddb_gtkui_widget_t*)w;
 }
 
@@ -1675,7 +1935,16 @@ tabstrip_refresh_cb (void *ctx) {
 static int
 w_tabstrip_message (ddb_gtkui_widget_t *w, uint32_t id, uintptr_t ctx, uint32_t p1, uint32_t p2) {
     switch (id) {
+    case DB_EV_PLAYLISTCHANGED:
+        if (p1 == DDB_PLAYLIST_CHANGE_TITLE
+            || p1 == DDB_PLAYLIST_CHANGE_POSITION
+            || p1 == DDB_PLAYLIST_CHANGE_DELETED
+            || p1 == DDB_PLAYLIST_CHANGE_CREATED) {
+            g_idle_add (tabstrip_refresh_cb, w);
+        }
+        break;
     case DB_EV_PLAYLISTSWITCHED:
+    case DB_EV_TRACKINFOCHANGED:
         g_idle_add (tabstrip_refresh_cb, w);
         break;
     }
@@ -1708,6 +1977,9 @@ static gboolean
 tabbed_trackinfochanged_cb (gpointer p) {
     w_trackdata_t *d = p;
     w_playlist_t *tp = (w_playlist_t *)d->w;
+    if (!strcmp (tp->base.type, "tabbed_playlist")) {
+        ddb_tabstrip_refresh (((w_tabbed_playlist_t *)tp)->tabstrip);
+    }
     ddb_playlist_t *plt = deadbeef->plt_get_curr ();
     if (plt) {
         int idx = deadbeef->plt_get_item_idx (plt, (DB_playItem_t *)d->trk, PL_MAIN);
@@ -1767,11 +2039,31 @@ paused_cb (gpointer data) {
 }
 
 static gboolean
+config_changed_cb (gpointer data) {
+    DdbListview *p = DDB_LISTVIEW (data);
+    ddb_listview_update_fonts (p);
+    ddb_listview_header_update_fonts (p);
+    ddb_listview_lock_columns (p, 0);
+    ddb_listview_clear_sort (p);
+    ddb_listview_refresh (DDB_LISTVIEW (p), DDB_REFRESH_LIST | DDB_REFRESH_VSCROLL);
+    return FALSE;
+}
+
+static gboolean
 refresh_cb (gpointer data) {
     DdbListview *p = DDB_LISTVIEW (data);
     ddb_listview_lock_columns (p, 0);
     ddb_listview_clear_sort (p);
     ddb_listview_refresh (DDB_LISTVIEW (p), DDB_REFRESH_LIST | DDB_REFRESH_VSCROLL);
+    return FALSE;
+}
+
+static gboolean
+playlistchanged_cb (gpointer p) {
+    w_playlist_t *tp = (w_playlist_t *)p;
+    if (!strcmp (tp->base.type, "tabbed_playlist")) {
+        ddb_tabstrip_refresh (((w_tabbed_playlist_t *)tp)->tabstrip);
+    }
     return FALSE;
 }
 
@@ -1885,6 +2177,36 @@ trackfocus_cb (gpointer p) {
     return FALSE;
 }
 
+static gboolean
+selectionfocus_cb (gpointer p) {
+    w_playlist_t *tp = p;
+    deadbeef->pl_lock ();
+    ddb_playlist_t *plt = deadbeef->plt_get_curr ();
+    if (plt) {
+        DB_playItem_t *it = deadbeef->plt_get_first (plt, PL_MAIN);
+        while (it) {
+            if (deadbeef->pl_is_selected (it)) {
+                break;
+            }
+            DB_playItem_t *next = deadbeef->pl_get_next (it, PL_MAIN);
+            deadbeef->pl_item_unref (it);
+            it = next;
+        }
+        if (it) {
+            int idx = deadbeef->pl_get_idx_of (it);
+            if (idx != -1) {
+                deadbeef->plt_set_cursor (p, PL_MAIN, idx);
+                ddb_listview_scroll_to (tp->list, idx);
+            }
+            deadbeef->pl_item_unref (it);
+        }
+
+        deadbeef->plt_unref (plt);
+    }
+    deadbeef->pl_unlock ();
+
+    return FALSE;
+}
 static int
 w_tabbed_playlist_message (ddb_gtkui_widget_t *w, uint32_t id, uintptr_t ctx, uint32_t p1, uint32_t p2) {
     w_playlist_t *tp = (w_playlist_t *)w;
@@ -1922,12 +2244,24 @@ w_tabbed_playlist_message (ddb_gtkui_widget_t *w, uint32_t id, uintptr_t ctx, ui
         break;
     case DB_EV_PLAYLISTCHANGED:
         g_idle_add (refresh_cb, tp->list);
+        if (p1 == DDB_PLAYLIST_CHANGE_TITLE
+            || p1 == DDB_PLAYLIST_CHANGE_POSITION
+            || p1 == DDB_PLAYLIST_CHANGE_DELETED
+            || p1 == DDB_PLAYLIST_CHANGE_CREATED) {
+            g_idle_add (playlistchanged_cb, w);
+        }
         break;
     case DB_EV_PLAYLISTSWITCHED:
         g_idle_add (playlistswitch_cb, w);
         break;
     case DB_EV_TRACKFOCUSCURRENT:
         g_idle_add (trackfocus_cb, w);
+        break;
+    case DB_EV_FOCUS_SELECTION:
+        g_idle_add (selectionfocus_cb, w);
+        break;
+    case DB_EV_CONFIGCHANGED:
+        g_idle_add (config_changed_cb, tp->list);
         break;
     case DB_EV_SELCHANGED:
         if (ctx != (uintptr_t)tp->list || p2 == PL_SEARCH) {
@@ -1982,6 +2316,12 @@ w_playlist_message (ddb_gtkui_widget_t *w, uint32_t id, uintptr_t ctx, uint32_t 
     case DB_EV_TRACKFOCUSCURRENT:
         g_idle_add (trackfocus_cb, w);
         break;
+    case DB_EV_FOCUS_SELECTION:
+        g_idle_add (selectionfocus_cb, w);
+        break;
+    case DB_EV_CONFIGCHANGED:
+        g_idle_add (config_changed_cb, p->list);
+        break;
     case DB_EV_SELCHANGED:
         if (ctx != (uintptr_t)p->list || p2 == PL_SEARCH) {
             g_idle_add (refresh_cb, p->list);
@@ -2002,6 +2342,9 @@ w_playlist_load (struct ddb_gtkui_widget_s *w, const char *type, const char *s) 
         if (!strcmp (key, "hideheaders")) {
             ((w_playlist_t *)w)->hideheaders = atoi (val);
         }
+        if (!strcmp (key, "width")) {
+            ((w_playlist_t *)w)->width = atoi (val);
+        }
     }
 
     return s;
@@ -2009,15 +2352,23 @@ w_playlist_load (struct ddb_gtkui_widget_s *w, const char *type, const char *s) 
 
 static void
 w_playlist_save (struct ddb_gtkui_widget_s *w, char *s, int sz) {
+    w_playlist_t *ww = (w_playlist_t *)w;
+
+    GtkAllocation a;
+    gtk_widget_get_allocation(ww->base.widget, &a);
+    int width = a.width;
+
     char save[100];
-    snprintf (save, sizeof (save), " hideheaders=%d", ((w_playlist_t *)w)->hideheaders);
+    snprintf (save, sizeof (save), " hideheaders=%d width=%d", ww->hideheaders, width);
     strncat (s, save, sz);
 }
 
 static void
 w_playlist_init (ddb_gtkui_widget_t *base) {
     w_playlist_t *w = (w_playlist_t *)base;
+
     ddb_listview_show_header (w->list, !w->hideheaders);
+    ddb_listview_init_autoresize (w->list, w->width);
 
     g_idle_add (playlistswitch_cb, w);
     g_idle_add (refresh_cb, w->list);
@@ -2093,6 +2444,7 @@ w_playlist_create (void) {
     w->base.initmenu = w_playlist_initmenu;
     gtk_widget_show (GTK_WIDGET (w->list));
     main_playlist_init (GTK_WIDGET (w->list));
+
     if (deadbeef->conf_get_int ("gtkui.headers.visible", 1)) {
         ddb_listview_show_header (DDB_LISTVIEW (w->list), 1);
     }
@@ -2112,6 +2464,10 @@ gboolean
 fill_selproperties_cb (gpointer data) {
     w_selproperties_t *w = data;
     DB_playItem_t **tracks = NULL;
+    if (w->refresh_timeout) {
+        g_source_remove (w->refresh_timeout);
+        w->refresh_timeout = 0;
+    }
     int numtracks = 0;
     deadbeef->pl_lock ();
     int nsel = deadbeef->pl_getselcount ();
@@ -2151,22 +2507,61 @@ fill_selproperties_cb (gpointer data) {
     return FALSE;
 }
 
+static void
+selproperties_selection_changed (gpointer user_data)
+{
+    w_selproperties_t *selprop_w = user_data;
+    if (selprop_w->refresh_timeout) {
+        g_source_remove (selprop_w->refresh_timeout);
+        selprop_w->refresh_timeout = 0;
+    }
+    selprop_w->refresh_timeout = g_timeout_add (100, fill_selproperties_cb, user_data);
+}
+
 static int
 selproperties_message (ddb_gtkui_widget_t *w, uint32_t id, uintptr_t ctx, uint32_t p1, uint32_t p2) {
+    w_selproperties_t *selprop_w = (w_selproperties_t *)w;
     switch (id) {
     case DB_EV_PLAYLISTCHANGED:
-    case DB_EV_SELCHANGED:
-        {
-            g_idle_add (fill_selproperties_cb, w);
+        if (p1 == DDB_PLAYLIST_CHANGE_CONTENT
+            || p1 == DDB_PLAYLIST_CHANGE_SELECTION) {
+            selproperties_selection_changed (w);
         }
+        break;
+    case DB_EV_PLAYLISTSWITCHED:
+    case DB_EV_SELCHANGED:
+        selproperties_selection_changed (w);
         break;
     }
     return 0;
 }
 
 static void
-w_selproperties_init (struct ddb_gtkui_widget_s *w) {
-    fill_selproperties_cb (w);
+w_selproperties_init (struct ddb_gtkui_widget_s *widget) {
+    w_selproperties_t *w = (w_selproperties_t *)widget;
+    w->refresh_timeout = 0;
+    fill_selproperties_cb (widget);
+}
+
+static void
+on_selproperties_showheaders_toggled (GtkCheckMenuItem *checkmenuitem, gpointer          user_data) {
+    w_selproperties_t *w = user_data;
+    int showheaders = gtk_check_menu_item_get_active (GTK_CHECK_MENU_ITEM (checkmenuitem));
+    deadbeef->conf_set_int ("gtkui.selection_properties.show_headers", showheaders);
+    gtk_tree_view_set_headers_visible (GTK_TREE_VIEW (w->tree), showheaders);
+}
+
+static void
+w_selproperties_initmenu (struct ddb_gtkui_widget_s *w, GtkWidget *menu) {
+    GtkWidget *item;
+    item = gtk_check_menu_item_new_with_mnemonic (_("Show Column Headers"));
+    gtk_widget_show (item);
+    int showheaders = deadbeef->conf_get_int ("gtkui.selection_properties.show_headers", 1);
+    gtk_check_menu_item_set_active (GTK_CHECK_MENU_ITEM (item), showheaders);
+    gtk_container_add (GTK_CONTAINER (menu), item);
+    g_signal_connect ((gpointer) item, "toggled",
+            G_CALLBACK (on_selproperties_showheaders_toggled),
+            w);
 }
 
 ddb_gtkui_widget_t *
@@ -2177,6 +2572,7 @@ w_selproperties_create (void) {
     w->base.widget = gtk_event_box_new ();
     w->base.init = w_selproperties_init;
     w->base.message = selproperties_message;
+    w->base.initmenu = w_selproperties_initmenu;
 
     gtk_widget_set_can_focus (w->base.widget, FALSE);
 
@@ -2186,6 +2582,7 @@ w_selproperties_create (void) {
     gtk_container_add (GTK_CONTAINER (w->base.widget), scroll);
 
     gtk_scrolled_window_set_policy (GTK_SCROLLED_WINDOW (scroll), GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
+    gtk_scrolled_window_set_shadow_type (GTK_SCROLLED_WINDOW (scroll), GTK_SHADOW_ETCHED_IN);
     w->tree = gtk_tree_view_new ();
     gtk_widget_show (w->tree);
     gtk_tree_view_set_enable_search (GTK_TREE_VIEW (w->tree), FALSE);
@@ -2198,142 +2595,124 @@ w_selproperties_create (void) {
     GtkCellRenderer *rend1 = gtk_cell_renderer_text_new ();
     GtkCellRenderer *rend2 = gtk_cell_renderer_text_new ();
     GtkTreeViewColumn *col1 = gtk_tree_view_column_new_with_attributes (_("Key"), rend1, "text", 0, NULL);
-    gtk_tree_view_column_set_resizable (col1, TRUE);
+    gtk_tree_view_column_set_sizing (col1, GTK_TREE_VIEW_COLUMN_AUTOSIZE);
     GtkTreeViewColumn *col2 = gtk_tree_view_column_new_with_attributes (_("Value"), rend2, "text", 1, NULL);
-    gtk_tree_view_column_set_resizable (col2, TRUE);
+    gtk_tree_view_column_set_sizing (col2, GTK_TREE_VIEW_COLUMN_AUTOSIZE);
     gtk_tree_view_append_column (GTK_TREE_VIEW (w->tree), col1);
     gtk_tree_view_append_column (GTK_TREE_VIEW (w->tree), col2);
     gtk_tree_view_set_headers_clickable (GTK_TREE_VIEW (w->tree), TRUE);
+
+    int showheaders = deadbeef->conf_get_int ("gtkui.selection_properties.show_headers", 1);
+    gtk_tree_view_set_headers_visible (GTK_TREE_VIEW (w->tree), showheaders);
+
     w_override_signals (w->base.widget, w);
 
     return (ddb_gtkui_widget_t *)w;
 }
 
 ///// cover art display
+static GdkPixbuf *
+get_cover_art(const int width, const int height, void (*callback)(void *), void *user_data) {
+    DB_playItem_t *it = deadbeef->streamer_get_playing_track();
+    if (!it) {
+        return NULL;
+    }
+
+    deadbeef->pl_lock();
+    const char *uri = deadbeef->pl_find_meta(it, ":URI");
+    const char *album = deadbeef->pl_find_meta(it, "album");
+    const char *artist = deadbeef->pl_find_meta(it, "artist");
+    if (!album || !*album) {
+        album = deadbeef->pl_find_meta(it, "title");
+    }
+    GdkPixbuf *pixbuf = get_cover_art_primary_by_size(uri, artist, album, width, height, callback, user_data);
+    deadbeef->pl_unlock();
+    deadbeef->pl_item_unref(it);
+    return pixbuf;
+}
+
 static gboolean
-coverart_redraw_cb (void *user_data) {
+coverart_invalidate_cb (void *user_data) {
     w_coverart_t *w = user_data;
-    w->cover_size = w->new_cover_size;
-    gtk_widget_queue_draw (w->drawarea);
+    gtk_widget_queue_draw(w->drawarea);
     return FALSE;
 }
 
 void
-coverart_avail_callback (void *user_data) {
-    g_idle_add (coverart_redraw_cb, user_data);
+coverart_invalidate (void *user_data) {
+    g_idle_add(coverart_invalidate_cb, user_data);
 }
 
 static gboolean
-coverart_redraw_single_cb (void *user_data) {
+coverart_load (void *user_data) {
     w_coverart_t *w = user_data;
-    gtk_widget_queue_draw (w->drawarea);
+    w->load_timeout_id = 0;
+    GdkPixbuf *pixbuf = get_cover_art(w->widget_width, w->widget_height, coverart_invalidate, user_data);
+    if (pixbuf) {
+        coverart_invalidate(user_data);
+        g_object_unref(pixbuf);
+    }
     return FALSE;
 }
 
 static void
-coverart_avail_callback_single (gpointer user_data) {
-    g_idle_add (coverart_redraw_single_cb, user_data);
+coverart_draw_cairo (GdkPixbuf *pixbuf, GtkAllocation *a, cairo_t *cr, const int filter) {
+    const int pw = gdk_pixbuf_get_width(pixbuf);
+    const int ph = gdk_pixbuf_get_height(pixbuf);
+    cairo_rectangle(cr, 0, 0, a->width, a->height);
+    if (pw > a->width || ph > a->height || pw < a->width && ph < a->height) {
+        const double scale = min(a->width/(double)pw, a->height/(double)ph);
+        cairo_translate(cr, (a->width - a->width*scale)/2., (a->height - a->height*scale)/2.);
+        cairo_scale(cr, scale, scale);
+        cairo_pattern_set_filter(cairo_get_source(cr), filter);
+    }
+    gdk_cairo_set_source_pixbuf(cr, pixbuf, (a->width - pw)/2., (a->height - ph)/2.);
+    cairo_fill(cr);
 }
 
-static gboolean
-deferred_cover_load_cb (void *ctx) {
-    w_coverart_t *w = ctx;
-    w->cover_refresh_timeout_id = 0;
-    DB_playItem_t *it = deadbeef->streamer_get_playing_track ();
-    if (!it) {
-        return FALSE;
-    }
-    GtkAllocation a;
-    gtk_widget_get_allocation (GTK_WIDGET (w->drawarea), &a);
-    deadbeef->pl_lock ();
-    const char *album = deadbeef->pl_find_meta (it, "album");
-    const char *artist = deadbeef->pl_find_meta (it, "artist");
-    if (!album || !*album) {
-        album = deadbeef->pl_find_meta (it, "title");
-    }
-    GdkPixbuf *pixbuf = get_cover_art_callb (deadbeef->pl_find_meta (((DB_playItem_t *)it), ":URI"), artist, album, w->new_cover_size, NULL, NULL);
-    deadbeef->pl_unlock ();
-    deadbeef->pl_item_unref (it);
-    queue_cover_callback (coverart_avail_callback, w);
+static void
+coverart_draw_anything (GtkAllocation *a, cairo_t *cr) {
+    GdkPixbuf *pixbuf = get_cover_art(-1, -1, NULL, NULL);
     if (pixbuf) {
-        g_object_unref (pixbuf);
+        coverart_draw_cairo(pixbuf, a, cr, CAIRO_FILTER_FAST);
+        g_object_unref(pixbuf);
     }
+}
 
-    return FALSE;
+static void
+coverart_draw_exact (GtkAllocation *a, cairo_t *cr, void *user_data) {
+    GdkPixbuf *pixbuf = get_cover_art(a->width, a->height, coverart_invalidate, user_data);
+    if (pixbuf) {
+        coverart_draw_cairo(pixbuf, a, cr, CAIRO_FILTER_BEST);
+        g_object_unref(pixbuf);
+    }
+    else {
+        coverart_draw_anything(a, cr);
+    }
 }
 
 static gboolean
 coverart_draw (GtkWidget *widget, cairo_t *cr, gpointer user_data) {
-    DB_playItem_t *it = deadbeef->streamer_get_playing_track ();
     GtkAllocation a;
-    gtk_widget_get_allocation (widget, &a);
-    int width = a.width;
-    int height = a.height;
+    gtk_widget_get_allocation(widget, &a);
+    if (a.width < 8 || a.height < 8) {
+        return TRUE;
+    }
 
     w_coverart_t *w = user_data;
-    int real_size = min (width, height);
-
-    if (real_size > 0 && it) {
-        if (w->new_cover_size != real_size) {
-            w->new_cover_size = real_size;
-            if (w->cover_refresh_timeout_id) {
-                g_source_remove (w->cover_refresh_timeout_id);
-                w->cover_refresh_timeout_id = 0;
-            }
-            if (w->cover_size == -1) {
-                w->cover_size = real_size;
-                g_idle_add (deferred_cover_load_cb, w);
-            }
-            else {
-                if (!w->cover_refresh_timeout_id) {
-                    w->cover_refresh_timeout_id = g_timeout_add (1000, deferred_cover_load_cb, w);
-                }
-            }
-        }
-        int size = w->cover_size;
-
-        float scale = (float)real_size / size;
-
-        deadbeef->pl_lock ();
-        const char *album = deadbeef->pl_find_meta (it, "album");
-        const char *artist = deadbeef->pl_find_meta (it, "artist");
-        if (!album || !*album) {
-            album = deadbeef->pl_find_meta (it, "title");
-        }
-        GdkPixbuf *pixbuf = get_cover_art_callb (deadbeef->pl_find_meta ((it), ":URI"), artist, album, real_size == size ? size : -1, coverart_avail_callback_single, user_data);
-        deadbeef->pl_unlock ();
-
-        int hq = 0;
-        if (!pixbuf) {
-            pixbuf = cover_get_default_pixbuf ();
-            hq = 1;
-        }
-
-        if (pixbuf) {
-            size = gdk_pixbuf_get_width (pixbuf);
-            float art_scale = (float)real_size / size;
-            int pw = real_size;
-            if (gdk_pixbuf_get_width (pixbuf) < gdk_pixbuf_get_height (pixbuf)) {
-                art_scale *= (float)gdk_pixbuf_get_width (pixbuf) / gdk_pixbuf_get_height (pixbuf);
-            }
-            int ph = pw;
-            int x = 0;
-            int y = 0;
-            if (gdk_pixbuf_get_width (pixbuf) > gdk_pixbuf_get_height (pixbuf)) {
-                y = (a.height - gdk_pixbuf_get_height (pixbuf)) / 2;
-            }
-            else if (gdk_pixbuf_get_width (pixbuf) < gdk_pixbuf_get_height (pixbuf)) {
-                x = (a.width - gdk_pixbuf_get_width (pixbuf)) / 2;
-            }
-            cairo_rectangle (cr, x, y, pw, ph);
-            cairo_scale (cr, art_scale, art_scale);
-            gdk_cairo_set_source_pixbuf (cr, pixbuf, x, y);
-            cairo_pattern_set_filter (cairo_get_source(cr), hq ? CAIRO_FILTER_GAUSSIAN : CAIRO_FILTER_FAST);
-            cairo_fill (cr);
-            g_object_unref (pixbuf);
-        }
-        deadbeef->pl_item_unref (it);
+    if (w->widget_height == a.height && w->widget_width == a.width) {
+        coverart_draw_exact(&a, cr, user_data);
     }
+    else {
+        coverart_draw_anything(&a, cr);
+        w->widget_height = a.height;
+        w->widget_width = a.width;
+        if (w->load_timeout_id) {
+            g_source_remove(w->load_timeout_id);
+        }
+        w->load_timeout_id = g_timeout_add(1000, coverart_load, user_data);
+    }
+
     return TRUE;
 }
 
@@ -2347,20 +2726,19 @@ coverart_expose_event (GtkWidget *widget, GdkEventExpose *event, gpointer user_d
 
 static int
 coverart_message (ddb_gtkui_widget_t *w, uint32_t id, uintptr_t ctx, uint32_t p1, uint32_t p2) {
-    w_coverart_t *ca = (w_coverart_t *)w;
     switch (id) {
     case DB_EV_PLAYLIST_REFRESH:
-        g_idle_add (coverart_redraw_cb, w);
+        coverart_invalidate(w);
         break;
     case DB_EV_SONGSTARTED:
-        g_idle_add (coverart_redraw_cb, w);
+        coverart_invalidate(w);
         break;
     case DB_EV_TRACKINFOCHANGED:
         {
             ddb_event_track_t *ev = (ddb_event_track_t *)ctx;
             DB_playItem_t *it = deadbeef->streamer_get_playing_track ();
             if (it == ev->track) {
-                g_idle_add (coverart_redraw_cb, w);
+                coverart_invalidate(w);
             }
             if (it) {
                 deadbeef->pl_item_unref (it);
@@ -2379,8 +2757,8 @@ w_coverart_create (void) {
     w->base.widget = gtk_event_box_new ();
     w->base.message = coverart_message;
     w->drawarea = gtk_drawing_area_new ();
-    w->cover_size = -1;
-    w->new_cover_size = -1;
+    w->widget_height = -1;
+    w->widget_width = -1;
     gtk_widget_show (w->drawarea);
     gtk_container_add (GTK_CONTAINER (w->base.widget), w->drawarea);
 #if !GTK_CHECK_VERSION(3,0,0)
@@ -3837,6 +4215,9 @@ w_volumebar_create (void) {
     w->base.widget = gtk_event_box_new ();
     w->base.message = w_volumebar_message;
     w->volumebar = ddb_volumebar_new ();
+#if GTK_CHECK_VERSION(3,0,0)
+    gtk_widget_set_events (GTK_WIDGET (w->base.widget), gtk_widget_get_events (GTK_WIDGET (w->base.widget)) | GDK_SCROLL_MASK);
+#endif
     ddb_volumebar_init_signals (DDB_VOLUMEBAR (w->volumebar), w->base.widget);
     gtk_widget_show (w->volumebar);
     gtk_widget_set_size_request (w->base.widget, 70, -1);

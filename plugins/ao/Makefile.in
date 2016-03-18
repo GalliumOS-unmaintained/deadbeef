@@ -343,6 +343,8 @@ INTL_DEFAULT_VERBOSITY = @INTL_DEFAULT_VERBOSITY@
 INTL_LIBS = @INTL_LIBS@
 INTL_LIBTOOL_SUFFIX_PREFIX = @INTL_LIBTOOL_SUFFIX_PREFIX@
 INTL_MACOSX_LIBS = @INTL_MACOSX_LIBS@
+JANSSON_CFLAGS = @JANSSON_CFLAGS@
+JANSSON_LIBS = @JANSSON_LIBS@
 JPEG_DEPS_CFLAGS = @JPEG_DEPS_CFLAGS@
 JPEG_DEPS_LIBS = @JPEG_DEPS_LIBS@
 LD = @LD@
@@ -375,6 +377,8 @@ MAINT = @MAINT@
 MAKEINFO = @MAKEINFO@
 MANIFEST_TOOL = @MANIFEST_TOOL@
 MKDIR_P = @MKDIR_P@
+MPG123_CFLAGS = @MPG123_CFLAGS@
+MPG123_LIBS = @MPG123_LIBS@
 MSGFMT = @MSGFMT@
 MSGFMT_015 = @MSGFMT_015@
 MSGMERGE = @MSGMERGE@
@@ -494,7 +498,7 @@ target_alias = @target_alias@
 top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
-@HAVE_PSF_TRUE@aodir = $(libdir)/$(PACKAGE)
+EXTRA_DIST = eng_psf/peops/reverb.c eng_psf/peops/adsr.c eng_psf/peops/registers.c eng_psf/peops/dma.c eng_psf/peops2/spu2.c eng_psf/peops2/reverb2.c eng_psf/peops2/adsr2.c eng_dsf/arm7memil.c eng_dsf/aicalfo.c eng_ssf/scsplfo.c
 @HAVE_PSF_TRUE@pkglib_LTLIBRARIES = ddb_ao.la
 @HAVE_PSF_TRUE@ddb_ao_la_SOURCES = plugin.c main.c corlett.c\
 @HAVE_PSF_TRUE@eng_dsf/eng_dsf.c eng_dsf/dc_hw.c eng_dsf/aica.c eng_dsf/aicadsp.c eng_dsf/arm7.c eng_dsf/arm7i.c\
@@ -513,7 +517,6 @@ top_srcdir = @top_srcdir@
 @HAVE_PSF_TRUE@eng_psf/peops2/adsr.h eng_psf/peops2/dma.h eng_psf/peops2/externals.h eng_psf/peops2/gauss_i.h eng_psf/peops2/psemuxa.h eng_psf/peops2/registers.h eng_psf/peops2/regs.h eng_psf/peops2/reverb.h eng_psf/peops2/spu.h eng_psf/peops2/stdafx.h 
 
 @HAVE_PSF_TRUE@ddb_ao_la_LDFLAGS = -module -avoid-version $(ZLIB_LIBS)
-@HAVE_PSF_TRUE@EXTRA_DIST = eng_psf/peops/reverb.c eng_psf/peops/adsr.c eng_psf/peops/registers.c eng_psf/peops/dma.c eng_psf/peops2/spu2.c eng_psf/peops2/reverb2.c eng_psf/peops2/adsr2.c eng_dsf/arm7memil.c eng_dsf/aicalfo.c eng_ssf/scsplfo.c
 @HAVE_PSF_TRUE@ddb_ao_la_LIBADD = $(LDADD)
 @HAVE_PSF_TRUE@AM_CFLAGS = $(CFLAGS) $(ZLIB_CFLAGS) -Wall -DPATH_MAX=1024 -DHAS_PSXCPU=1 -I.. -Ieng_ssf -Ieng_qsf -Ieng_dsf -lm -fPIC 
 all: all-am

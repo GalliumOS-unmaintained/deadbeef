@@ -388,6 +388,19 @@ static void asf_utf16LEdecode(DB_FILE *fd,
     return;
 }
 
+static int
+asf_add_disc_meta (DB_playItem_t *it, const char *disc) {
+    char *slash = strchr (disc, '/');
+    if (slash) {
+        // split into track/number
+        *slash = 0;
+        slash++;
+        deadbeef->pl_add_meta (it, "numdiscs", slash);
+    }
+    deadbeef->pl_add_meta (it, "disc", disc);
+    return 0;
+}
+
 static int asf_parse_header(DB_FILE *fd, asf_waveformatex_t* wfx, DB_playItem_t *it)
 {
     asf_object_t current;
@@ -603,7 +616,7 @@ static int asf_parse_header(DB_FILE *fd, asf_waveformatex_t* wfx, DB_playItem_t 
                         read_uint16le(fd, &length);
                         trace ("ext md id: %s\n", utf8buf);
 
-                        if (!strcmp("WM/TrackNumber",utf8buf)) {
+                        if (!strcmp("WM/TrackNumber",utf8buf) || !strcmp("WM/Track",utf8buf)) {
                             if (type == 0) {
                                 unsigned char *s = id3buf;
                                 asf_utf16LEdecode(fd, length, &id3buf, &id3buf_remaining);
@@ -633,12 +646,12 @@ static int asf_parse_header(DB_FILE *fd, asf_waveformatex_t* wfx, DB_playItem_t 
                             if (type == 0) {
                                 unsigned char *s = id3buf;
                                 asf_utf16LEdecode(fd, length, &id3buf, &id3buf_remaining);
-                                deadbeef->pl_append_meta (it, "disc", s);
+                                asf_add_disc_meta (it, s);
                             } else if ((type >=2) && (type <= 5)) {
-                                int tracknum = asf_intdecode(fd, type, length);
+                                int num = asf_intdecode(fd, type, length);
                                 char n[100];
-                                snprintf (n, sizeof (n), "%d", tracknum);
-                                deadbeef->pl_append_meta (it, "disc", n);
+                                snprintf (n, sizeof (n), "%d", num);
+                                deadbeef->pl_replace_meta (it, "disc", n);
                             } else {
                                 SKIP_BYTES(fd, length);
                             }
@@ -672,6 +685,32 @@ static int asf_parse_header(DB_FILE *fd, asf_waveformatex_t* wfx, DB_playItem_t 
                                 char n[100];
                                 snprintf (n, sizeof (n), "%d", year);
                                 deadbeef->pl_append_meta (it, "year", n);
+                            } else {
+                                SKIP_BYTES(fd, length);
+                            }
+                        } else if (!strcmp("WM/OriginalReleaseYear", utf8buf)) {
+                            if (type == 0) {
+                                unsigned char *s = id3buf;
+                                asf_utf16LEdecode(fd, length, &id3buf, &id3buf_remaining);
+                                deadbeef->pl_append_meta (it, "original_release_year", s);
+                            } else if ((type >=2) && (type <= 5)) {
+                                int year = asf_intdecode(fd, type, length);
+                                char n[100];
+                                snprintf (n, sizeof (n), "%d", year);
+                                deadbeef->pl_append_meta (it, "original_release_year", n);
+                            } else {
+                                SKIP_BYTES(fd, length);
+                            }
+                        } else if (!strcmp("WM/OriginalReleaseTime", utf8buf)) {
+                            if (type == 0) {
+                                unsigned char *s = id3buf;
+                                asf_utf16LEdecode(fd, length, &id3buf, &id3buf_remaining);
+                                deadbeef->pl_append_meta (it, "original_release_time", s);
+                            } else if ((type >=2) && (type <= 5)) {
+                                int date = asf_intdecode(fd, type, length);
+                                char n[100];
+                                snprintf (n, sizeof (n), "%d", date);
+                                deadbeef->pl_append_meta (it, "original_release_time", n);
                             } else {
                                 SKIP_BYTES(fd, length);
                             }

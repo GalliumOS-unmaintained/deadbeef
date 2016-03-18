@@ -128,7 +128,8 @@ am_deadbeef_OBJECTS = main.$(OBJEXT) plugins.$(OBJEXT) \
 	junklib.$(OBJEXT) utf8.$(OBJEXT) vfs.$(OBJEXT) \
 	vfs_stdio.$(OBJEXT) md5.$(OBJEXT) metacache.$(OBJEXT) \
 	ringbuf.$(OBJEXT) dsppreset.$(OBJEXT) replaygain.$(OBJEXT) \
-	fft.$(OBJEXT) handler.$(OBJEXT) escape.$(OBJEXT)
+	fft.$(OBJEXT) handler.$(OBJEXT) escape.$(OBJEXT) tf.$(OBJEXT) \
+	playqueue.$(OBJEXT) sort.$(OBJEXT)
 deadbeef_OBJECTS = $(am_deadbeef_OBJECTS)
 am__DEPENDENCIES_1 =
 deadbeef_DEPENDENCIES = $(am__DEPENDENCIES_1) $(am__DEPENDENCIES_1) \
@@ -387,6 +388,8 @@ INTL_DEFAULT_VERBOSITY = @INTL_DEFAULT_VERBOSITY@
 INTL_LIBS = @INTL_LIBS@
 INTL_LIBTOOL_SUFFIX_PREFIX = @INTL_LIBTOOL_SUFFIX_PREFIX@
 INTL_MACOSX_LIBS = @INTL_MACOSX_LIBS@
+JANSSON_CFLAGS = @JANSSON_CFLAGS@
+JANSSON_LIBS = @JANSSON_LIBS@
 JPEG_DEPS_CFLAGS = @JPEG_DEPS_CFLAGS@
 JPEG_DEPS_LIBS = @JPEG_DEPS_LIBS@
 LD = @LD@
@@ -419,6 +422,8 @@ MAINT = @MAINT@
 MAKEINFO = @MAKEINFO@
 MANIFEST_TOOL = @MANIFEST_TOOL@
 MKDIR_P = @MKDIR_P@
+MPG123_CFLAGS = @MPG123_CFLAGS@
+MPG123_LIBS = @MPG123_LIBS@
 MSGFMT = @MSGFMT@
 MSGFMT_015 = @MSGFMT_015@
 MSGMERGE = @MSGMERGE@
@@ -567,6 +572,7 @@ deadbeef_SOURCES = \
 	volume.c volume.h\
 	junklib.h junklib.c utf8.c utf8.h\
 	u8_lc_map.h\
+	u8_uc_map.h\
 	fastftoi.h\
 	vfs.c vfs.h vfs_stdio.c\
 	md5/md5.c md5/md5.h\
@@ -578,7 +584,10 @@ deadbeef_SOURCES = \
 	fft.c fft.h\
 	handler.c handler.h\
 	strdupa.h\
-	escape.c escape.h
+	escape.c escape.h\
+	tf.c tf.h\
+	playqueue.c playqueue.h\
+	sort.c sort.h
 
 
 #	ConvertUTF/ConvertUTF.c ConvertUTF/ConvertUTF.h
@@ -726,13 +735,16 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/messagepump.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/metacache.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/playlist.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/playqueue.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/plmeta.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/pltmeta.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/plugins.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/premix.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/replaygain.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/ringbuf.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/sort.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/streamer.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/tf.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/threading_pthread.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/utf8.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/vfs.Po@am__quote@

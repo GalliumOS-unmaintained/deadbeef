@@ -70,7 +70,7 @@ extern "C" {
 // that there's a better replacement in the newer deadbeef versions.
 
 // api version history:
-// 9.9 -- devel
+// 1.8 -- deadbeef-0.7.0
 // 1.7 -- deadbeef-0.6.2
 // 1.6 -- deadbeef-0.6.1
 // 1.5 -- deadbeef-0.6
@@ -92,7 +92,7 @@ extern "C" {
 // 0.1 -- deadbeef-0.2.0
 
 #define DB_API_VERSION_MAJOR 1
-#define DB_API_VERSION_MINOR 7
+#define DB_API_VERSION_MINOR 8
 
 #define DDB_DEPRECATED(x)
 
@@ -112,9 +112,20 @@ extern "C" {
 #endif
 #endif
 
-
 #ifndef DDB_API_LEVEL
 #define DDB_API_LEVEL DB_API_VERSION_MINOR
+#endif
+
+#if (DDB_WARN_DEPRECATED && DDB_API_LEVEL >= 8)
+#define DEPRECATED_18 DDB_DEPRECATED("since deadbeef API 1.8")
+#else
+#define DEPRECATED_18
+#endif
+
+#if (DDB_WARN_DEPRECATED && DDB_API_LEVEL >= 7)
+#define DEPRECATED_17 DDB_DEPRECATED("since deadbeef API 1.7")
+#else
+#define DEPRECATED_17
 #endif
 
 #if (DDB_WARN_DEPRECATED && DDB_API_LEVEL >= 6)
@@ -294,6 +305,20 @@ enum playback_mode_t {
     PLAYBACK_MODE_LOOP_SINGLE = 2, // loop single track
 };
 
+#if (DDB_API_LEVEL >= 8)
+// playlist change info, used in the DB_EV_PLAYLISTCHANGED p1 argument
+enum ddb_playlist_change_t {
+    DDB_PLAYLIST_CHANGE_CONTENT, // this is the most generic one, will work for the cases when p1 was omitted (0)
+    DDB_PLAYLIST_CHANGE_CREATED,
+    DDB_PLAYLIST_CHANGE_DELETED,
+    DDB_PLAYLIST_CHANGE_POSITION,
+    DDB_PLAYLIST_CHANGE_TITLE,
+    DDB_PLAYLIST_CHANGE_SELECTION,
+    DDB_PLAYLIST_CHANGE_SEARCHRESULT,
+    DDB_PLAYLIST_CHANGE_PLAYQUEUE,
+};
+#endif
+
 typedef struct {
     int event;
     int size;
@@ -344,13 +369,20 @@ enum {
     DB_EV_PAUSE = 6, // pause playback
     DB_EV_PLAY_RANDOM = 7, // play random track
     DB_EV_TERMINATE = 8, // must be sent to player thread to terminate
-    DB_EV_PLAYLIST_REFRESH = 9, // save and redraw current playlist 
+    DB_EV_PLAYLIST_REFRESH = 9, // [DEPRECATED IN API LEVEL 8, use DB_EV_PLAYLISTCHANGED instead] save and redraw current playlist
     DB_EV_REINIT_SOUND = 10, // reinitialize sound output with current output_plugin config value
     DB_EV_CONFIGCHANGED = 11, // one or more config options were changed
     DB_EV_TOGGLE_PAUSE = 12,
     DB_EV_ACTIVATED = 13, // will be fired every time player is activated
     DB_EV_PAUSED = 14, // player was paused or unpaused
-    DB_EV_PLAYLISTCHANGED = 15, // playlist contents were changed
+
+    DB_EV_PLAYLISTCHANGED = 15, // playlist contents were changed (e.g. metadata in any track)
+    // DB_EV_PLAYLISTCHANGED NOTE: it's usually sent on LARGE changes,
+    // when multiple tracks are affected, while for single tracks
+    // the DB_EV_TRACKINFOCHANGED is preferred
+    // added in API level 8:
+    // p1 is one of ddb_playlist_change_t enum values, detailing what exactly has been changed.
+
     DB_EV_VOLUMECHANGED = 16, // volume was changed
     DB_EV_OUTPUTCHANGED = 17, // sound output plugin changed
     DB_EV_PLAYLISTSWITCHED = 18, // playlist switch occured
@@ -364,6 +396,10 @@ enum {
     DB_EV_PLUGINSLOADED = 23, // after all plugins have been loaded and connected
 #endif
 
+#if (DDB_API_LEVEL >= 8)
+    DB_EV_FOCUS_SELECTION = 24, // tell playlist viewer to focus on selection
+#endif
+
     // -----------------
     // structured events
 
@@ -371,13 +407,19 @@ enum {
     DB_EV_SONGCHANGED = 1000, // current song changed from one to another, ctx=ddb_event_trackchange_t
     DB_EV_SONGSTARTED = 1001, // song started playing, ctx=ddb_event_track_t
     DB_EV_SONGFINISHED = 1002, // song finished playing, ctx=ddb_event_track_t
-    DB_EV_TRACKINFOCHANGED = 1004, // trackinfo was changed (included medatata and playback status), ctx=ddb_event_track_t
+
+    DB_EV_TRACKINFOCHANGED = 1004, // trackinfo was changed (included medatata, playback status, playqueue state, etc), ctx=ddb_event_track_t
+    // DB_EV_TRACKINFOCHANGED NOTE: when multiple tracks change, DB_EV_PLAYLISTCHANGED may be sent instead,
+    // for speed reasons, so always handle both events.
+
     DB_EV_SEEKED = 1005, // seek happened, ctx=ddb_event_playpos_t
 
     // since 1.5
 #if (DDB_API_LEVEL >= 5)
+    // NOTE: this is not a structured event, but too late to fix, needs to stay here for backwards compat
     DB_EV_TRACKFOCUSCURRENT = 1006, // user wants to highlight/find the current playing track
 #endif
+
     DB_EV_MAX
 };
 
@@ -405,6 +447,15 @@ enum ddb_sort_order_t {
 #if (DDB_API_LEVEL >= 3)
     DDB_SORT_RANDOM,
 #endif
+};
+
+enum ddb_sys_directory_t {
+    DDB_SYS_DIR_CONFIG = 1,
+    DDB_SYS_DIR_PREFIX = 2,
+    DDB_SYS_DIR_DOC = 3,
+    DDB_SYS_DIR_PLUGIN = 4,
+    DDB_SYS_DIR_PIXMAP = 5,
+    DDB_SYS_DIR_CACHE = 6,
 };
 
 // typecasting macros
@@ -449,6 +500,44 @@ typedef struct ddb_fileadd_data_s {
 } ddb_fileadd_data_t;
 #endif
 
+// since 1.8
+#if (DDB_API_LEVEL >= 8)
+enum {
+    DDB_TF_CONTEXT_HAS_INDEX = 1,
+    DDB_TF_CONTEXT_HAS_ID = 2,
+    DDB_TF_CONTEXT_NO_DYNAMIC = 4, // skip dynamic fields (%playback_time%)
+};
+
+// context for title formatting interpreter
+typedef struct {
+    int _size; // must be set to sizeof(tf_context_t)
+    uint32_t flags; // DDB_TF_CONTEXT_ flags
+    ddb_playItem_t *it; // track to get information from, or NULL
+    ddb_playlist_t *plt; // playlist in which the track resides, or NULL
+
+    // NOTE: when plt is NULL, it means that the track is not in any playlist,
+    // that is -- playlist will never be automatically guessed, for performance
+    // reasons.
+
+    // index of the track in playlist the track belongs to
+    // if present, DDB_TF_CONTEXT_HAS_INDEX flag must be set
+    int idx;
+
+    // predefined column id, one of the DB_COLUMN_
+    // if present, DDB_TF_CONTEXT_HAS_ID flag must be set
+    int id;
+
+    int iter; // playlist iteration (PL_MAIN, PL_SEARCH)
+
+    // update is a returned value
+    // meaning:
+    // 0: no automatic updates
+    // <0: updates on every call
+    // >0: number of milliseconds between updates / until next update
+    int update;
+} ddb_tf_context_t;
+#endif
+
 // forward decl for plugin struct
 struct DB_plugin_s;
 
@@ -488,11 +577,11 @@ typedef struct {
     // system folders
     // normally functions will return standard folders derived from --prefix
     // portable version will return pathes specified in comments below
-    const char *(*get_config_dir) (void); // installdir/config | $XDG_CONFIG_HOME/.config/deadbeef
-    const char *(*get_prefix) (void); // installdir | PREFIX
-    const char *(*get_doc_dir) (void); // installdir/doc | DOCDIR
-    const char *(*get_plugin_dir) (void); // installdir/plugins | LIBDIR/deadbeef
-    const char *(*get_pixmap_dir) (void); // installdir/pixmaps | PREFIX "/share/deadbeef/pixmaps"
+    const char *(*get_config_dir) (void) DEPRECATED_18; // installdir/config | $XDG_CONFIG_HOME/.config/deadbeef
+    const char *(*get_prefix) (void) DEPRECATED_18; // installdir | PREFIX
+    const char *(*get_doc_dir) (void) DEPRECATED_18; // installdir/doc | DOCDIR
+    const char *(*get_plugin_dir) (void) DEPRECATED_18; // installdir/plugins | LIBDIR/deadbeef
+    const char *(*get_pixmap_dir) (void) DEPRECATED_18; // installdir/pixmaps | PREFIX "/share/deadbeef/pixmaps"
 
     // process control
     void (*quit) (void);
@@ -631,7 +720,9 @@ typedef struct {
     void (*plt_copy_items) (ddb_playlist_t *to, int iter, ddb_playlist_t * from, DB_playItem_t *before, uint32_t *indices, int cnt);
     void (*plt_search_reset) (ddb_playlist_t *plt);
     void (*plt_search_process) (ddb_playlist_t *plt, const char *text);
-    void (*plt_sort) (ddb_playlist_t *plt, int iter, int id, const char *format, int order);
+
+    // sort using the title formatting v1 (deprecated)
+    void (*plt_sort) (ddb_playlist_t *plt, int iter, int id, const char *format, int order) DEPRECATED_18;
 
     // add files and folders to current playlist
     int (*plt_add_file) (ddb_playlist_t *plt, const char *fname, int (*cb)(DB_playItem_t *it, void *data), void *user_data) DEPRECATED_15;
@@ -725,7 +816,7 @@ typedef struct {
 
     // get next track
     DB_playItem_t *(*pl_get_next) (DB_playItem_t *it, int iter);
-    
+
     // get previous track
     DB_playItem_t *(*pl_get_prev) (DB_playItem_t *it, int iter);
 
@@ -755,10 +846,10 @@ typedef struct {
        %D directory name with full path (e.g. /home/user/file.mp3 -> /home/user)
        more to come
     */
-    int (*pl_format_title) (DB_playItem_t *it, int idx, char *s, int size, int id, const char *fmt);
+    int (*pl_format_title) (DB_playItem_t *it, int idx, char *s, int size, int id, const char *fmt) DEPRECATED_18;
 
     // _escaped version wraps all conversions with '' and replaces every ' in conversions with \'
-    int (*pl_format_title_escaped) (DB_playItem_t *it, int idx, char *s, int size, int id, const char *fmt);
+    int (*pl_format_title_escaped) (DB_playItem_t *it, int idx, char *s, int size, int id, const char *fmt) DEPRECATED_18;
 
     // format duration 't' (fractional seconds) into string, for display in playlist
     void (*pl_format_time) (float t, char *dur, int size);
@@ -795,12 +886,12 @@ typedef struct {
     void (*pl_set_item_replaygain) (DB_playItem_t *it, int idx, float value);
     float (*pl_get_item_replaygain) (DB_playItem_t *it, int idx);
 
-    // playqueue support
-    int (*pl_playqueue_push) (DB_playItem_t *it);
-    void (*pl_playqueue_clear) (void);
-    void (*pl_playqueue_pop) (void);
-    void (*pl_playqueue_remove) (DB_playItem_t *it);
-    int (*pl_playqueue_test) (DB_playItem_t *it);
+    // playqueue support (obsolete since API 1.8)
+    int (*pl_playqueue_push) (DB_playItem_t *it) DEPRECATED_18;
+    void (*pl_playqueue_clear) (void) DEPRECATED_18;
+    void (*pl_playqueue_pop) (void) DEPRECATED_18;
+    void (*pl_playqueue_remove) (DB_playItem_t *it) DEPRECATED_18;
+    int (*pl_playqueue_test) (DB_playItem_t *it) DEPRECATED_18;
 
     // volume control
     void (*volume_set_db) (float dB);
@@ -821,7 +912,7 @@ typedef struct {
     int (*junk_id3v2_convert_22_to_24) (DB_id3v2_tag_t *tag22, DB_id3v2_tag_t *tag24);
     void (*junk_id3v2_free) (DB_id3v2_tag_t *tag);
     int (*junk_id3v2_write) (FILE *file, DB_id3v2_tag_t *tag);
-    DB_id3v2_frame_t *(*junk_id3v2_add_text_frame) (DB_id3v2_tag_t *tag, const char *frame_id, const char *value); 
+    DB_id3v2_frame_t *(*junk_id3v2_add_text_frame) (DB_id3v2_tag_t *tag, const char *frame_id, const char *value);
     int (*junk_id3v2_remove_frames) (DB_id3v2_tag_t *tag, const char *frame_id);
     int (*junk_apev2_read) (DB_playItem_t *it, DB_FILE *fp);
     int (*junk_apev2_read_mem) (DB_playItem_t *it, char *mem, int size);
@@ -977,7 +1068,10 @@ typedef struct {
     int (*plt_get_idx) (ddb_playlist_t *plt);
 
     // save referenced playlist in config
+    // same as pl_save_current, but for index
     int (*plt_save_n) (int n);
+
+    // same as pl_save_current, but for playlist pointer
     int (*plt_save_config) (ddb_playlist_t *plt);
 
     // register file added callback
@@ -1033,13 +1127,65 @@ typedef struct {
     void (*plt_set_scroll) (ddb_playlist_t *plt, int scroll);
     int (*plt_get_scroll) (ddb_playlist_t *plt);
 #endif
+    // since 1.8
+#if (DDB_API_LEVEL >= 8)
+    // **** title formatting v2 ****
+
+    // compile the input title formatting string into bytecode
+    // script: freeform string with title formatting special characters in it
+    // returns the pointer to compiled bytecode, which must be tf_free'd by the caller.
+    char *(*tf_compile) (const char *script);
+
+    // free the code returned by tf_compile
+    void (*tf_free) (char *code);
+
+    // evaluate the titleformatting script in a given context
+    // ctx: a pointer to ddb_tf_context_t structure initialized by the caller
+    // code: the bytecode data created by tf_compile
+    // out: buffer allocated by the caller, must be big enough to fit the output string
+    // outlen: the size of out buffer
+    // returns -1 on fail, output size on success
+    int (*tf_eval) (ddb_tf_context_t *ctx, const char *code, char *out, int outlen);
+
+    // sort using title formatting v2
+    void (*plt_sort_v2) (ddb_playlist_t *plt, int iter, int id, const char *format, int order);
+
+    // playqueue APIs
+    int (*playqueue_push) (DB_playItem_t *it);
+    void (*playqueue_pop) (void);
+    void (*playqueue_remove) (DB_playItem_t *it);
+    void (*playqueue_clear) (void);
+    int (*playqueue_test) (DB_playItem_t *it);
+    int (*playqueue_get_count) (void);
+    DB_playItem_t *(*playqueue_get_item) (int n);
+    int (*playqueue_remove_nth) (int n);
+    void (*playqueue_insert_at) (int n, DB_playItem_t *it);
+
+    // system directory API, returns path by id from ddb_sys_directory_t enum
+    const char *(*get_system_dir) (int dir_id);
+
+    // set the selected playlist for the ongoing plugin action.
+    // the "set" function is expected to be called by the UI plugin,
+    // while the "get" is expected to be called by the action code.
+    void (*action_set_playlist) (ddb_playlist_t *plt);
+
+    // returns one of:
+    // selected playlist for context menu for the DDB_ACTION_CTX_PLAYLIST,
+    // or the current active playlist for any other context.
+    // returned value cannot be NULL
+    // returned value is refcounted, so remember to call plt_unref.
+    ddb_playlist_t *(*action_get_playlist) (void);
+
+    // convert legacy title formatting to the new format, usable with tf_compile
+    void (*tf_import_legacy) (const char *fmt, char *out, int outsize);
+#endif
 } DB_functions_t;
 
 // NOTE: an item placement must be selected like this
 // if (flags & DB_ACTION_COMMON)  -> main menu, or nowhere, or where GUI plugin wants
 //    basically, to put it into main menu, prefix the item title with the menu name
 //    e.g. title = "File/MyItem" --> this will add the item under File menu
-//    
+//
 // if (flags & PLAYLIST)  -> playlist (tab) context menu
 //
 // if (none of the above)  -> track context menu
@@ -1060,7 +1206,7 @@ enum {
     /* DEPRECATED in API 1.5, ignored in callback2 */
     /* Action can (and prefer) traverse multiple tracks by itself */
     DB_ACTION_CAN_MULTIPLE_TRACKS = 1 << 3,
-    
+
     /* Action is inactive */
     DB_ACTION_DISABLED = 1 << 4,
 
@@ -1079,6 +1225,8 @@ enum {
 enum {
     DDB_ACTION_CTX_MAIN,
     DDB_ACTION_CTX_SELECTION,
+    // NOTE: starting with API 1.8, plugins should be using the
+    // action_get_playlist function for getting the playlist pointer.
     DDB_ACTION_CTX_PLAYLIST,
     DDB_ACTION_CTX_NOWPLAYING,
     DDB_ACTION_CTX_COUNT
@@ -1096,7 +1244,8 @@ typedef struct DB_plugin_action_s {
     const char *title;
     const char *name;
     uint32_t flags;
-    // the use of "callback" is deprecated, only use it if the code must be compatible with API 1.4
+    // the use of "callback" is deprecated,
+    // only use it if the code must be compatible with API 1.4
     // otherwise switch to callback2
     DB_plugin_action_callback_t callback;
     struct DB_plugin_action_s *next;
@@ -1134,7 +1283,7 @@ typedef struct DB_plugin_s {
 
     // start is called to start plugin; can be NULL
     int (*start) (void);
-    
+
     // stop is called to deinit plugin; can be NULL
     int (*stop) (void);
 
@@ -1149,13 +1298,13 @@ typedef struct DB_plugin_s {
     // opposite of connect, will be called before stop, while all plugins are still
     // in "started" state
     int (*disconnect) (void);
-    
+
     // exec_cmdline may be called at any moment when user sends commandline to player
     // can be NULL if plugin doesn't support commandline processing
     // cmdline is 0-separated list of strings, guaranteed to have 0 at the end
     // cmdline_size is number of bytes pointed by cmdline
     int (*exec_cmdline) (const char *cmdline, int cmdline_size);
-    
+
     // @returns linked list of actions for the specified track
     // when it is NULL -- the plugin must return list of all actions
     DB_plugin_action_t* (*get_actions) (DB_playItem_t *it);
@@ -1201,7 +1350,7 @@ typedef struct DB_fileinfo_s {
     // these parameters should be set in decoder->open
     ddb_waveformat_t fmt;
 
-    // readpos should be updated to current decoder time (in seconds) 
+    // readpos should be updated to current decoder time (in seconds)
     float readpos;
 
     // this is the (optional) file handle, that can be used by streamer to
@@ -1210,7 +1359,17 @@ typedef struct DB_fileinfo_s {
 } DB_fileinfo_t;
 
 enum {
-    DDB_DECODER_HINT_16BIT = 0x1, // that flag means streamer prefers 16 bit streams for performance reasons
+    // Decoders should try to output 16 bit stream when this flag is set, for
+    // performance reasons.
+    DDB_DECODER_HINT_16BIT = 0x1,
+#if (DDB_API_LEVEL >= 8)
+    // Decoders should only call the streamer_set_bitrate from plugin.read function,
+    // and only when this flag is set.
+    DDB_DECODER_HINT_NEED_BITRATE = 0x2,
+    // Decoders can do their own infinite looping when this flag is set, in the
+    // "Loop Single" looping mode.
+    DDB_DECODER_HINT_CAN_LOOP = 0x4,
+#endif
 };
 
 // decoder plugin
@@ -1239,7 +1398,7 @@ typedef struct DB_decoder_s {
     // 'insert' is called to insert new item to playlist
     // decoder is responsible to calculate duration, split it into subsongs, load cuesheet, etc
     // after==NULL means "prepend before 1st item in playlist"
-    DB_playItem_t * (*insert) (ddb_playlist_t *plt, DB_playItem_t *after, const char *fname); 
+    DB_playItem_t * (*insert) (ddb_playlist_t *plt, DB_playItem_t *after, const char *fname);
 
     int (*numvoices) (DB_fileinfo_t *info);
     void (*mutevoice) (DB_fileinfo_t *info, int voice, int mute);
@@ -1414,8 +1573,9 @@ typedef struct {
     void (*set_param) (const char *key, const char *value);
     void (*get_param) (const char *key, char *value, int len, const char *def);
 
-    // parent was added in 1.4 API
+#if (DDB_API_LEVEL >= 4)
     void *parent;
+#endif
 } ddb_dialog_t;
 
 enum {
@@ -1448,7 +1608,7 @@ typedef struct DB_playlist_s {
     int (*save) (ddb_playlist_t *plt, const char *fname, DB_playItem_t *first, DB_playItem_t *last);
 
     const char **extensions; // NULL-terminated list of supported file extensions, e.g. {"m3u", "pls", NULL}
-    
+
     // since 1.5
 #if (DDB_API_LEVEL >= 5)
     DB_playItem_t * (*load2) (int visibility, ddb_playlist_t *plt, DB_playItem_t *after, const char *fname, int *pabort);

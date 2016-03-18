@@ -18,12 +18,13 @@
 #include "../../deadbeef.h"
 #include "csid.h"
 
-static const char *exts[] = { "sid",NULL };
+static const char *exts[] = { "sid", NULL };
 static const char settings_dlg[] =
     "property \"Enable HVSC Songlength DB\" checkbox hvsc_enable 0;\n"
     "property \"Songlengths.txt (from HVSC)\" file hvsc_path \"\";\n"
     "property \"Samplerate\" entry sid.samplerate 44100;\n"
     "property \"Bits per sample (8 or 16)\" entry sid.bps 16;\n"
+    "property \"Mono synth\" checkbox sid.mono 0;\n"
     "property \"Default song length (sec)\" entry sid.defaultlength 180;\n"
 ;
 
@@ -58,7 +59,6 @@ DB_decoder_t sid_plugin = {
     .plugin.start = csid_start,
     .plugin.stop = csid_stop,
     .plugin.configdialog = settings_dlg,
-    .plugin.id = "stdsid",
     .plugin.message = sid_message,
     .open = csid_open,
     .init = csid_init,

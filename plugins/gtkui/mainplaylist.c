@@ -1,21 +1,26 @@
 /*
-    DeaDBeeF - The Ultimate Music Player
-    Copyright (C) 2009-2013 Alexey Yakovenko <waker@users.sourceforge.net>
+    DeaDBeeF -- the music player
+    Copyright (C) 2009-2015 Alexey Yakovenko and other contributors
 
-    This program is free software; you can redistribute it and/or
-    modify it under the terms of the GNU General Public License
-    as published by the Free Software Foundation; either version 2
-    of the License, or (at your option) any later version.
-    
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
-    
-    You should have received a copy of the GNU General Public License
-    along with this program; if not, write to the Free Software
-    Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+    This software is provided 'as-is', without any express or implied
+    warranty.  In no event will the authors be held liable for any damages
+    arising from the use of this software.
+
+    Permission is granted to anyone to use this software for any purpose,
+    including commercial applications, and to alter it and redistribute it
+    freely, subject to the following restrictions:
+
+    1. The origin of this software must not be misrepresented; you must not
+     claim that you wrote the original software. If you use this software
+     in a product, an acknowledgment in the product documentation would be
+     appreciated but is not required.
+
+    2. Altered source versions must be plainly marked as such, and must not be
+     misrepresented as being the original software.
+
+    3. This notice may not be removed or altered from any source distribution.
 */
+
 #ifdef HAVE_CONFIG_H
 #  include <config.h>
 #endif
@@ -38,14 +43,6 @@
 #define trace(fmt,...)
 
 #define min(x,y) ((x)<(y)?(x):(y))
-
-GdkPixbuf *play16_pixbuf;
-GdkPixbuf *pause16_pixbuf;
-GdkPixbuf *buffering16_pixbuf;
-
-
-// HACK!!
-extern GtkWidget *theme_treeview;
 
 static int
 main_get_count (void) {
@@ -146,7 +143,7 @@ void
 main_col_sort (int col, int sort_order, void *user_data) {
     col_info_t *c = (col_info_t*)user_data;
     ddb_playlist_t *plt = deadbeef->plt_get_curr ();
-    deadbeef->plt_sort (plt, PL_MAIN, c->id, c->format, sort_order-1);
+    deadbeef->plt_sort_v2 (plt, PL_MAIN, c->id, c->format, sort_order-1);
     deadbeef->plt_unref (plt);
 }
 void main_handle_doubleclick (DdbListview *listview, DdbListviewIter iter, int idx) {
@@ -164,36 +161,6 @@ void main_selection_changed (DdbListview *ps, DdbListviewIter it, int idx) {
     deadbeef->sendmessage (DB_EV_SELCHANGED, (uintptr_t)ps, deadbeef->plt_get_curr_idx (), PL_MAIN);
 }
 
-void main_draw_group_title (DdbListview *listview, cairo_t *drawable, DdbListviewIter it, int x, int y, int width, int height) {
-    if (group_by_str && group_by_str[0]) {
-        char str[1024];
-        deadbeef->pl_format_title ((DB_playItem_t *)it, -1, str, sizeof (str), -1, group_by_str);
-        char *lb = strchr (str, '\r');
-        if (lb) {
-            *lb = 0;
-        }
-        lb = strchr (str, '\n');
-        if (lb) {
-            *lb = 0;
-        }
-        int theming = !gtkui_override_listview_colors ();
-        if (theming) {
-            GdkColor *clr = &gtk_widget_get_style(theme_treeview)->fg[GTK_STATE_NORMAL];
-            float rgb[] = {clr->red/65535.f, clr->green/65535.f, clr->blue/65535.f};
-            draw_set_fg_color (&listview->listctx, rgb);
-        }
-        else {
-            GdkColor clr;
-            gtkui_get_listview_text_color (&clr);
-            float rgb[] = {clr.red/65535.f, clr.green/65535.f, clr.blue/65535.f};
-            draw_set_fg_color (&listview->listctx, rgb);
-        }
-        int ew, eh;
-        draw_get_text_extents (&listview->listctx, str, -1, &ew, &eh);
-        draw_text (&listview->listctx, x + 5, y + height/2 - draw_get_listview_rowheight (&listview->listctx)/2 + 3, ew+5, 0, str);
-        draw_line (&listview->listctx, x + 5 + ew + 3, y+height/2, x + width, y+height/2);
-    }
-}
 void
 main_delete_selected (void) {
     deadbeef->pl_delete_selected ();
@@ -212,21 +179,21 @@ main_is_selected (DdbListviewIter it) {
     return deadbeef->pl_is_selected ((DB_playItem_t *)it);
 }
 
-int
-main_get_group (DdbListviewIter it, char *str, int size) {
-    if (!group_by_str || !group_by_str[0]) {
-        return -1;
+void
+main_groups_changed (DdbListview *listview, const char* format) {
+    if (!format) {
+        return;
     }
-    deadbeef->pl_format_title ((DB_playItem_t *)it, -1, str, size, -1, group_by_str);
-    char *lb = strchr (str, '\r');
-    if (lb) {
-        *lb = 0;
+    if (listview->group_format) {
+        free (listview->group_format);
     }
-    lb = strchr (str, '\n');
-    if (lb) {
-        *lb = 0;
+    if (listview->group_title_bytecode) {
+        free (listview->group_title_bytecode);
+        listview->group_title_bytecode = NULL;
     }
-    return 0;
+    deadbeef->conf_set_str ("gtkui.playlist.group_by_tf", format);
+    listview->group_format = strdup (format);
+    listview->group_title_bytecode = deadbeef->tf_compile (listview->group_format);
 }
 
 static int lock_column_config = 0;
@@ -234,32 +201,7 @@ static int lock_column_config = 0;
 void
 main_columns_changed (DdbListview *listview) {
     if (!lock_column_config) {
-        rewrite_column_config (listview, "playlist");
-    }
-}
-
-void
-main_column_size_changed (DdbListview *listview, int col) {
-    const char *title;
-    int width;
-    int align_right;
-    col_info_t *inf;
-    int minheight;
-    int res = ddb_listview_column_get_info (listview, col, &title, &width, &align_right, &minheight, (void **)&inf);
-    if (res == -1) {
-        return;
-    }
-    if (inf->id == DB_COLUMN_ALBUM_ART) {
-        if (listview->scrollpos > 0) {
-            int pos = ddb_listview_get_row_pos (listview, listview->ref_point);
-            gtk_range_set_value (GTK_RANGE (listview->scrollbar), pos - listview->ref_point_offset);
-        }
-        coverart_reset_queue ();
-        ddb_playlist_t *plt = deadbeef->plt_get_curr ();
-        if (plt) {
-            deadbeef->plt_modified (plt);
-            deadbeef->plt_unref (plt);
-        }
+        rewrite_column_config (listview, "gtkui.columns.playlist");
     }
 }
 
@@ -268,6 +210,9 @@ void main_col_free_user_data (void *data) {
         col_info_t *inf = data;
         if (inf->format) {
             free (inf->format);
+        }
+        if (inf->bytecode) {
+            free (inf->bytecode);
         }
         free (data);
     }
@@ -310,18 +255,19 @@ DdbListviewBinding main_binding = {
     .is_selected = main_is_selected,
     .select = main_select,
 
-    .get_group = main_get_group,
+    .get_group = pl_common_get_group,
+    .groups_changed = main_groups_changed,
 
     .drag_n_drop = main_drag_n_drop,
     .external_drag_n_drop = main_external_drag_n_drop,
 
     .draw_column_data = draw_column_data,
-    .draw_group_title = main_draw_group_title,
+    .draw_album_art = draw_album_art,
+    .draw_group_title = pl_common_draw_group_title,
 
     // columns
     .col_sort = main_col_sort,
     .columns_changed = main_columns_changed,
-    .column_size_changed = main_column_size_changed,
     .col_free_user_data = main_col_free_user_data,
 
     // callbacks
@@ -336,32 +282,31 @@ DdbListviewBinding main_binding = {
 
 void
 main_playlist_init (GtkWidget *widget) {
-    play16_pixbuf = create_pixbuf ("play_16.png");
-    pause16_pixbuf = create_pixbuf ("pause_16.png");
-    buffering16_pixbuf = create_pixbuf ("buffering_16.png");
-
     // make listview widget and bind it to data
     DdbListview *listview = DDB_LISTVIEW(widget);
     main_binding.ref = (void (*) (DdbListviewIter))deadbeef->pl_item_ref;
     main_binding.unref = (void (*) (DdbListviewIter))deadbeef->pl_item_unref;
     ddb_listview_set_binding (listview, &main_binding);
     lock_column_config = 1;
-    DB_conf_item_t *col = deadbeef->conf_find ("playlist.column.", NULL);
-    if (!col) {
-        // create default set of columns
-        add_column_helper (listview, "♫", 50, DB_COLUMN_PLAYING, NULL, 0);
-        add_column_helper (listview, _("Artist / Album"), 150, -1, "%a - %b", 0);
-        add_column_helper (listview, _("Track No"), 50, -1, "%n", 1);
-        add_column_helper (listview, _("Title"), 150, -1, "%t", 0);
-        add_column_helper (listview, _("Duration"), 50, -1, "%l", 0);
+    deadbeef->conf_lock ();
+    if (!deadbeef->conf_get_str_fast ("gtkui.columns.playlist", NULL)) {
+        import_column_config_0_6 ("playlist.column.", "gtkui.columns.playlist");
     }
-    else {
-        while (col) {
-            append_column_from_textdef (listview, col->value);
-            col = deadbeef->conf_find ("playlist.column.", col);
-        }
+    deadbeef->conf_unlock ();
+    if (load_column_config (listview, "gtkui.columns.playlist") < 0) {
+        // create default set of columns
+        add_column_helper (listview, "♫", 50, DB_COLUMN_PLAYING, "%playstatus%", 0);
+        add_column_helper (listview, _("Artist / Album"), 150, -1, "%artist% - %album%", 0);
+        add_column_helper (listview, _("Track No"), 50, -1, "%tracknumber%", 1);
+        add_column_helper (listview, _("Title"), 150, -1, "%title%", 0);
+        add_column_helper (listview, _("Duration"), 50, -1, "%length%", 0);
     }
     lock_column_config = 0;
+
+    deadbeef->conf_lock ();
+    listview->group_format = strdup (deadbeef->conf_get_str_fast ("gtkui.playlist.group_by_tf", ""));
+    deadbeef->conf_unlock ();
+    listview->group_title_bytecode = deadbeef->tf_compile (listview->group_format);
 
     // FIXME: filepath should be in properties dialog, while tooltip should be
     // used to show text that doesn't fit in column width
@@ -373,23 +318,10 @@ main_playlist_init (GtkWidget *widget) {
         g_object_set_property (G_OBJECT (pl->list), "has-tooltip", &value);
         g_signal_connect (G_OBJECT (pl->list), "query-tooltip", G_CALLBACK (playlist_tooltip_handler), NULL);
     }
-    deadbeef->conf_lock ();
-    strncpy (group_by_str, deadbeef->conf_get_str_fast ("playlist.group_by", ""), sizeof (group_by_str));
-    deadbeef->conf_unlock ();
-    group_by_str[sizeof (group_by_str)-1] = 0;
-
-    gtkui_groups_pinned = deadbeef->conf_get_int ("playlist.pin.groups", 0);
-}
-
-void
-main_playlist_free (void) {
-    g_object_unref (play16_pixbuf);
-    g_object_unref (pause16_pixbuf);
-    g_object_unref (buffering16_pixbuf);
 }
 
 void
 main_refresh (void) {
-    deadbeef->sendmessage (DB_EV_PLAYLISTCHANGED, 0, 0, 0);
+    deadbeef->sendmessage (DB_EV_PLAYLISTCHANGED, 0, DDB_PLAYLIST_CHANGE_CONTENT, 0);
 }
 

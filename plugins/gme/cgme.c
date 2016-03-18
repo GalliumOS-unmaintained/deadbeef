@@ -1,6 +1,6 @@
 /*
     GameMusicEmu plugin for DeaDBeeF
-    Copyright (C) 2009-2014 Alexey Yakovenko <waker@users.sourceforge.net>
+    Copyright (C) 2009-2015 Alexey Yakovenko <waker@users.sourceforge.net>
 
     This software is provided 'as-is', without any express or implied
     warranty.  In no event will the authors be held liable for any damages
@@ -35,9 +35,8 @@
 #if HAVE_SYS_CDEFS_H
 #include <sys/cdefs.h>
 #endif
-#if HAVE_SYS_SYSLIMITS_H
-#include <sys/syslimits.h>
-#endif
+#include <limits.h>
+#include <unistd.h>
 
 //#define trace(...) { fprintf(stderr, __VA_ARGS__); }
 #define trace(fmt,...)
@@ -51,18 +50,23 @@ static int conf_fadeout = 10;
 static int conf_loopcount = 2;
 static int chip_voices = 0xff;
 static int chip_voices_changed = 0;
+static int conf_play_forever = 0;
 
 typedef struct {
     DB_fileinfo_t info;
     Music_Emu *emu;
     int reallength;
     float duration; // of current song
+    int eof;
+    int can_loop;
 } gme_fileinfo_t;
 
 static DB_fileinfo_t *
 cgme_open (uint32_t hint) {
     DB_fileinfo_t *_info = malloc (sizeof (gme_fileinfo_t));
+    gme_fileinfo_t *info = (gme_fileinfo_t *)_info;
     memset (_info, 0, sizeof (gme_fileinfo_t));
+    info->can_loop = hint & DDB_DECODER_HINT_CAN_LOOP;
     return _info;
 }
 
@@ -107,7 +111,7 @@ read_gzfile (const char *fname, char **buffer, int *size) {
     deadbeef->fclose (fp);
 
     sz *= 2;
-    int readsize = sz;
+    int readsize = (int)sz;
     *buffer = malloc (sz);
     if (!(*buffer)) {
         return -1;
@@ -137,7 +141,7 @@ read_gzfile (const char *fname, char **buffer, int *size) {
             break;
         }
         else {
-            readsize = sz;
+            readsize = (int)sz;
             sz *= 2;
             *buffer = realloc (*buffer, sz);
         }
@@ -157,11 +161,10 @@ cgme_init (DB_fileinfo_t *_info, DB_playItem_t *it) {
     deadbeef->pl_lock ();
     {
         const char *fname = deadbeef->pl_find_meta (it, ":URI");
-        const char *ext = strrchr (fname, '.');
         char *buffer;
         int sz;
         if (!read_gzfile (fname, &buffer, &sz)) {
-            res = gme_open_data (fname, buffer, sz, &info->emu, samplerate);
+            res = gme_open_data (buffer, sz, &info->emu, samplerate);
             free (buffer);
         }
         if (res) {
@@ -190,7 +193,7 @@ cgme_init (DB_fileinfo_t *_info, DB_playItem_t *it) {
                 return -1;
             }
 
-            res = gme_open_data (fname, buf, sz, &info->emu, samplerate);
+            res = gme_open_data (buf, sz, &info->emu, samplerate);
             free (buf);
         }
     }
@@ -204,14 +207,8 @@ cgme_init (DB_fileinfo_t *_info, DB_playItem_t *it) {
     gme_mute_voices (info->emu, chip_voices^0xff);
     gme_start_track (info->emu, deadbeef->pl_find_meta_int (it, ":TRACKNUM", 0));
 
-#ifdef GME_VERSION_055
     gme_info_t *inf;
     gme_track_info (info->emu, &inf, deadbeef->pl_find_meta_int (it, ":TRACKNUM", 0));
-#else
-    track_info_t _inf;
-    gme_track_info (info->emu, &inf, deadbeef->pl_find_meta_int (it, ":TRACKNUM", 0));
-    track_info_t *inf = &_inf;
-#endif
 
     _info->plugin = &plugin;
     _info->fmt.bps = 16;
@@ -221,6 +218,7 @@ cgme_init (DB_fileinfo_t *_info, DB_playItem_t *it) {
     info->duration = deadbeef->pl_get_item_duration (it);
     info->reallength = inf->length; 
     _info->readpos = 0;
+    info->eof = 0;
     return 0;
 }
 
@@ -236,8 +234,12 @@ cgme_free (DB_fileinfo_t *_info) {
 static int
 cgme_read (DB_fileinfo_t *_info, char *bytes, int size) {
     gme_fileinfo_t *info = (gme_fileinfo_t*)_info;
+    int playForever = conf_play_forever && info->can_loop;
     float t = (size/4) / (float)_info->fmt.samplerate;
-    if (_info->readpos + t >= info->duration) {
+    if (info->eof) {
+        return 0;
+    }
+    if (!playForever && _info->readpos + t >= info->duration) {
         t = info->duration - _info->readpos;
         if (t <= 0) {
             return 0;
@@ -251,31 +253,19 @@ cgme_read (DB_fileinfo_t *_info, char *bytes, int size) {
         chip_voices_changed = 0;
         gme_mute_voices (info->emu, chip_voices^0xff);
     }
+    
+    if (playForever)
+        gme_set_fade(info->emu, -1, 0);
+    else
+        gme_set_fade(info->emu, (int)(info->duration * 1000), conf_fadeout * 1000);
 
     if (gme_play (info->emu, size/2, (short*)bytes)) {
         return 0;
     }
-    if (conf_fadeout > 0 && info->duration >= conf_fadeout && info->reallength <= 0 && _info->readpos >= info->duration - conf_fadeout) {
-        float fade_amnt =  (info->duration - _info->readpos) / (float)conf_fadeout;
-        int nsamples = size/2;
-        float fade_incr = 1.f / (_info->fmt.samplerate * conf_fadeout) * 256;
-        const float ln10=2.3025850929940002f;
-        float fade = exp(ln10*(-(1.f-fade_amnt) * 3));
-
-        for (int i = 0; i < nsamples; i++) {
-            ((short*)bytes)[i] *= fade;
-            if (!(i & 0xff)) {
-                fade_amnt += fade_incr;
-                fade = exp(ln10*(-(1.f-fade_amnt) * 3));
-            }
-        }
-    }
 
     _info->readpos += t;
-    if (info->reallength == -1) {
-        if (gme_track_ended (info->emu)) {
-            return 0;
-        }
+    if (gme_track_ended (info->emu)) {
+        info->eof = 1;
     }
     return size;
 }
@@ -283,10 +273,11 @@ cgme_read (DB_fileinfo_t *_info, char *bytes, int size) {
 static int
 cgme_seek (DB_fileinfo_t *_info, float time) {
     gme_fileinfo_t *info = (gme_fileinfo_t*)_info;
-    if (gme_seek (info->emu, (long)(time * 1000))) {
+    if (gme_seek (info->emu, (int)(time * 1000))) {
         return -1;
     }
     _info->readpos = time;
+    info->eof = 0;
     return 0;
 }
 
@@ -295,7 +286,7 @@ cgme_add_meta (DB_playItem_t *it, const char *key, const char *value) {
     if (!value) {
         return;
     }
-    char len = strlen (value);
+    size_t len = strlen (value);
     char out[1024];
     // check for utf8 (hack)
     if (deadbeef->junk_iconv (value, len, out, sizeof (out), "utf-8", "utf-8") >= 0) {
@@ -320,16 +311,15 @@ cgme_add_meta (DB_playItem_t *it, const char *key, const char *value) {
 
 static DB_playItem_t *
 cgme_insert (ddb_playlist_t *plt, DB_playItem_t *after, const char *fname) {
-    Music_Emu *emu;
+    Music_Emu *emu = NULL;
     trace ("gme_open_file %s\n", fname);
 
     gme_err_t res = "gme uninitialized";
 
-    const char *ext = strrchr (fname, '.');
     char *buffer;
     int sz;
     if (!read_gzfile (fname, &buffer, &sz)) {
-        res = gme_open_data (fname, buffer, sz, &emu, gme_info_only);
+        res = gme_open_data (buffer, sz, &emu, gme_info_only);
         free (buffer);
     }
     if (res) {
@@ -354,7 +344,7 @@ cgme_insert (ddb_playlist_t *plt, DB_playItem_t *after, const char *fname) {
             return NULL;
         }
 
-        res = gme_open_data (fname, buf, sz, &emu, gme_info_only);
+        res = gme_open_data (buf, sz, &emu, gme_info_only);
         free (buf);
     }
 
@@ -368,7 +358,7 @@ cgme_insert (ddb_playlist_t *plt, DB_playItem_t *after, const char *fname) {
             const char *ret = gme_track_info (emu, &inf, i);
 #else
             track_info_t _inf;
-            const char *ret = gme_track_info (emu, &inf, i);
+            const char *ret = gme_track_info (emu, &_inf, i);
             track_info_t *inf = &_inf;
 #endif
             if (!ret) {
@@ -461,13 +451,14 @@ cgme_insert (ddb_playlist_t *plt, DB_playItem_t *after, const char *fname) {
 
 static const char * exts[]=
 {
-	"ay","gbs","gym","hes","kss","nsf","nsfe","sap","spc","vgm","vgz",NULL
+	"ay","gbs","gym","hes","kss","nsf","nsfe","sap","sfm","spc","vgm","vgz",NULL
 };
 
 static int
 cgme_start (void) {
     conf_fadeout = deadbeef->conf_get_int ("gme.fadeout", 10);
     conf_loopcount = deadbeef->conf_get_int ("gme.loopcount", 2);
+    conf_play_forever = deadbeef->conf_get_int ("playback.loop", PLAYBACK_MODE_LOOP_ALL) == PLAYBACK_MODE_LOOP_SINGLE;
     return 0;
 }
 
@@ -482,6 +473,7 @@ cgme_message (uint32_t id, uintptr_t ctx, uint32_t p1, uint32_t p2) {
     case DB_EV_CONFIGCHANGED:
         conf_fadeout = deadbeef->conf_get_int ("gme.fadeout", 10);
         conf_loopcount = deadbeef->conf_get_int ("gme.loopcount", 2);
+        conf_play_forever = deadbeef->conf_get_int ("playback.loop", PLAYBACK_MODE_LOOP_ALL) == PLAYBACK_MODE_LOOP_SINGLE;
         if (chip_voices != deadbeef->conf_get_int ("chip.voices", 0xff)) {
             chip_voices_changed = 1;
         }
@@ -507,23 +499,83 @@ static DB_decoder_t plugin = {
     .plugin.name = "Game-Music-Emu player",
     .plugin.descr = "chiptune/game music player based on GME library",
     .plugin.copyright = 
-        "Copyright (C) 2009-2013 Alexey Yakovenko <waker@users.sourceforge.net>\n"
+        "Game_Music_Emu plugin for DeaDBeeF\n"
+        "Copyright (C) 2009-2015 Alexey Yakovenko <waker@users.sourceforge.net>\n"
         "\n"
-        "Uses Game-Music-Emu by Shay Green <gblargg@gmail.com>, http://code.google.com/p/game-music-emu/\n"
+        "This software is provided 'as-is', without any express or implied\n"
+        "warranty.  In no event will the authors be held liable for any damages\n"
+        "arising from the use of this software.\n"
         "\n"
-        "This program is free software; you can redistribute it and/or\n"
-        "modify it under the terms of the GNU General Public License\n"
-        "as published by the Free Software Foundation; either version 2\n"
-        "of the License, or (at your option) any later version.\n"
+        "Permission is granted to anyone to use this software for any purpose,\n"
+        "including commercial applications, and to alter it and redistribute it\n"
+        "freely, subject to the following restrictions:\n"
         "\n"
-        "This program is distributed in the hope that it will be useful,\n"
+        "1. The origin of this software must not be misrepresented; you must not\n"
+        " claim that you wrote the original software. If you use this software\n"
+        " in a product, an acknowledgment in the product documentation would be\n"
+        " appreciated but is not required.\n"
+        "\n"
+        "2. Altered source versions must be plainly marked as such, and must not be\n"
+        " misrepresented as being the original software.\n"
+        "\n"
+        "3. This notice may not be removed or altered from any source distribution.\n"
+        "\n"
+        "\n"
+        "\n"
+        "Game_Music_Emu (modified)\n"
+        "Copyright (C) 2003-2009 Shay Green.\n"
+        "Foobar2000-related modifications (C) Chris Moeller\n"
+        "DeaDBeeF-related modifications (C) Alexey Yakovenko.\n"
+        "\n"
+        "This library is free software; you can redistribute it and/or\n"
+        "modify it under the terms of the GNU Lesser General Public\n"
+        "License as published by the Free Software Foundation; either\n"
+        "version 2.1 of the License, or (at your option) any later version.\n"
+        "\n"
+        "This library is distributed in the hope that it will be useful,\n"
         "but WITHOUT ANY WARRANTY; without even the implied warranty of\n"
-        "MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the\n"
-        "GNU General Public License for more details.\n"
+        "MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU\n"
+        "Lesser General Public License for more details.\n"
         "\n"
-        "You should have received a copy of the GNU General Public License\n"
-        "along with this program; if not, write to the Free Software\n"
-        "Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.\n"
+        "You should have received a copy of the GNU Lesser General Public\n"
+        "License along with this library; if not, write to the Free Software\n"
+        "Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA\n"
+        "\n"
+        "\n"
+        "\n"
+        "VGMPlay\n"
+        "Copyright Nicola Salmoria and the MAME team\n"
+        "All rights reserved.\n"
+        "\n"
+        "Redistribution and use of this code or any derivative works are permitted\n"
+        "provided that the following conditions are met:\n"
+        "\n"
+        "* Redistributions may not be sold, nor may they be used in a commercial\n"
+        "product or activity.\n"
+        "\n"
+        "* Redistributions that are modified from the original source must include the\n"
+        "complete source code, including the source code for all components used by a\n"
+        "binary built from the modified sources. However, as a special exception, the\n"
+        "source code distributed need not include anything that is normally distributed\n"
+        "(in either source or binary form) with the major components (compiler, kernel,\n"
+        "and so on) of the operating system on which the executable runs, unless that\n"
+        "component itself accompanies the executable.\n"
+        "\n"
+        "* Redistributions must reproduce the above copyright notice, this list of\n"
+        "conditions and the following disclaimer in the documentation and/or other\n"
+        "materials provided with the distribution.\n"
+        "\n"
+        "THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS \"AS IS\"\n"
+        "AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE\n"
+        "IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE\n"
+        "ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE\n"
+        "LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR\n"
+        "CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF\n"
+        "SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS\n"
+        "INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN\n"
+        "CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)\n"
+        "ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE\n"
+        "POSSIBILITY OF SUCH DAMAGE.\n"
     ,
     .plugin.website = "http://deadbeef.sf.net",
     .plugin.start = cgme_start,

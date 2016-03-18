@@ -425,6 +425,8 @@ INTL_DEFAULT_VERBOSITY = @INTL_DEFAULT_VERBOSITY@
 INTL_LIBS = @INTL_LIBS@
 INTL_LIBTOOL_SUFFIX_PREFIX = @INTL_LIBTOOL_SUFFIX_PREFIX@
 INTL_MACOSX_LIBS = @INTL_MACOSX_LIBS@
+JANSSON_CFLAGS = @JANSSON_CFLAGS@
+JANSSON_LIBS = @JANSSON_LIBS@
 JPEG_DEPS_CFLAGS = @JPEG_DEPS_CFLAGS@
 JPEG_DEPS_LIBS = @JPEG_DEPS_LIBS@
 LD = @LD@
@@ -457,6 +459,8 @@ MAINT = @MAINT@
 MAKEINFO = @MAKEINFO@
 MANIFEST_TOOL = @MANIFEST_TOOL@
 MKDIR_P = @MKDIR_P@
+MPG123_CFLAGS = @MPG123_CFLAGS@
+MPG123_LIBS = @MPG123_LIBS@
 MSGFMT = @MSGFMT@
 MSGFMT_015 = @MSGFMT_015@
 MSGMERGE = @MSGMERGE@
@@ -576,113 +580,113 @@ target_alias = @target_alias@
 top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
-@HAVE_SID_TRUE@sidpath = @top_srcdir@/plugins/sid/sidplay-libs
-@HAVE_SID_TRUE@EXTRA_DIST = \
-@HAVE_SID_TRUE@	$(sidpath)/libsidutils/README $(sidpath)/libsidplay/README $(sidpath)/resid/README\
-@HAVE_SID_TRUE@	$(sidpath)/libsidutils/COPYING $(sidpath)/libsidplay/COPYING $(sidpath)/resid/COPYING\
-@HAVE_SID_TRUE@	$(sidpath)/libsidutils/AUTHORS $(sidpath)/libsidplay/AUTHORS $(sidpath)/resid/AUTHORS
+sidpath = @top_srcdir@/plugins/sid/sidplay-libs
+EXTRA_DIST = \
+	$(sidpath)/libsidutils/README $(sidpath)/libsidplay/README $(sidpath)/resid/README\
+	$(sidpath)/libsidutils/COPYING $(sidpath)/libsidplay/COPYING $(sidpath)/resid/COPYING\
+	$(sidpath)/libsidutils/AUTHORS $(sidpath)/libsidplay/AUTHORS $(sidpath)/resid/AUTHORS
 
 @HAVE_SID_TRUE@pkglib_LTLIBRARIES = sid.la
 @HAVE_SID_TRUE@sid_la_SOURCES = plugin.c csid.cpp csid.h\
-@HAVE_SID_TRUE@sidplay-libs/libsidplay/src/mixer.cpp\
-@HAVE_SID_TRUE@sidplay-libs/libsidplay/src/player.cpp\
-@HAVE_SID_TRUE@sidplay-libs/libsidplay/src/mos656x/mos656x.cpp\
-@HAVE_SID_TRUE@sidplay-libs/libsidplay/src/mos6510/mos6510.cpp\
-@HAVE_SID_TRUE@sidplay-libs/libsidplay/src/sid6526/sid6526.cpp\
-@HAVE_SID_TRUE@sidplay-libs/libsidplay/src/sidtune/MUS.cpp\
-@HAVE_SID_TRUE@sidplay-libs/libsidplay/src/sidtune/SidTuneTools.cpp\
-@HAVE_SID_TRUE@sidplay-libs/libsidplay/src/sidtune/InfoFile.cpp\
-@HAVE_SID_TRUE@sidplay-libs/libsidplay/src/sidtune/SidTune.cpp\
-@HAVE_SID_TRUE@sidplay-libs/libsidplay/src/sidtune/PSID.cpp\
-@HAVE_SID_TRUE@sidplay-libs/libsidplay/src/sidtune/PP20.cpp\
-@HAVE_SID_TRUE@sidplay-libs/libsidplay/src/sidtune/IconInfo.cpp\
-@HAVE_SID_TRUE@sidplay-libs/libsidplay/src/event.cpp\
-@HAVE_SID_TRUE@sidplay-libs/libsidplay/src/psiddrv.cpp\
-@HAVE_SID_TRUE@sidplay-libs/libsidplay/src/config.cpp\
-@HAVE_SID_TRUE@sidplay-libs/libsidplay/src/sidplay2.cpp\
-@HAVE_SID_TRUE@sidplay-libs/libsidplay/src/xsid/xsid.cpp\
-@HAVE_SID_TRUE@sidplay-libs/libsidplay/src/mos6526/mos6526.cpp\
-@HAVE_SID_TRUE@sidplay-libs/builders/resid-builder/src/resid.cpp\
-@HAVE_SID_TRUE@sidplay-libs/builders/resid-builder/src/resid-builder.cpp\
-@HAVE_SID_TRUE@sidplay-libs/resid/wave8580_PS_.cpp\
-@HAVE_SID_TRUE@sidplay-libs/resid/filter.cpp\
-@HAVE_SID_TRUE@sidplay-libs/resid/pot.cpp\
-@HAVE_SID_TRUE@sidplay-libs/resid/wave.cpp\
-@HAVE_SID_TRUE@sidplay-libs/resid/version.cpp\
-@HAVE_SID_TRUE@sidplay-libs/resid/wave6581__ST.cpp\
-@HAVE_SID_TRUE@sidplay-libs/resid/extfilt.cpp\
-@HAVE_SID_TRUE@sidplay-libs/resid/wave8580_PST.cpp\
-@HAVE_SID_TRUE@sidplay-libs/resid/wave6581_PST.cpp\
-@HAVE_SID_TRUE@sidplay-libs/resid/wave6581_P_T.cpp\
-@HAVE_SID_TRUE@sidplay-libs/resid/wave6581_PS_.cpp\
-@HAVE_SID_TRUE@sidplay-libs/resid/envelope.cpp\
-@HAVE_SID_TRUE@sidplay-libs/resid/voice.cpp\
-@HAVE_SID_TRUE@sidplay-libs/resid/sid.cpp\
-@HAVE_SID_TRUE@sidplay-libs/resid/wave8580__ST.cpp\
-@HAVE_SID_TRUE@sidplay-libs/resid/wave8580_P_T.cpp\
-@HAVE_SID_TRUE@sidplay-libs/libsidplay/src/reloc65.c\
-@HAVE_SID_TRUE@sidplay-libs/unix/config.h\
-@HAVE_SID_TRUE@sidplay-libs/libsidplay/win/VC/sidconfig.h\
-@HAVE_SID_TRUE@sidplay-libs/libsidplay/win/VC/sidint.h\
-@HAVE_SID_TRUE@sidplay-libs/libsidplay/win/VC/config.h\
-@HAVE_SID_TRUE@sidplay-libs/libsidplay/unix/sidconfig.h\
-@HAVE_SID_TRUE@sidplay-libs/libsidplay/unix/sidint.h\
-@HAVE_SID_TRUE@sidplay-libs/libsidplay/src/xsid/xsid.h\
-@HAVE_SID_TRUE@sidplay-libs/libsidplay/src/mos6526/mos6526.h\
-@HAVE_SID_TRUE@sidplay-libs/libsidplay/src/sid6526/sid6526.h\
-@HAVE_SID_TRUE@sidplay-libs/libsidplay/src/mos656x/mos656x.h\
-@HAVE_SID_TRUE@sidplay-libs/libsidplay/src/c64/c64xsid.h\
-@HAVE_SID_TRUE@sidplay-libs/libsidplay/src/c64/c64cia.h\
-@HAVE_SID_TRUE@sidplay-libs/libsidplay/src/c64/c64vic.h\
-@HAVE_SID_TRUE@sidplay-libs/libsidplay/src/nullsid.h\
-@HAVE_SID_TRUE@sidplay-libs/libsidplay/src/sidtune/PP20_Defs.h\
-@HAVE_SID_TRUE@sidplay-libs/libsidplay/src/sidtune/SidTuneTools.h\
-@HAVE_SID_TRUE@sidplay-libs/libsidplay/src/sidtune/SidTuneCfg.h\
-@HAVE_SID_TRUE@sidplay-libs/libsidplay/src/sidtune/PP20.h\
-@HAVE_SID_TRUE@sidplay-libs/libsidplay/src/mos6510/cycle_based/sid6510c.h\
-@HAVE_SID_TRUE@sidplay-libs/libsidplay/src/mos6510/cycle_based/mos6510c.h\
-@HAVE_SID_TRUE@sidplay-libs/libsidplay/src/mos6510/mos6510.h\
-@HAVE_SID_TRUE@sidplay-libs/libsidplay/src/mos6510/conf6510.h\
-@HAVE_SID_TRUE@sidplay-libs/libsidplay/src/mos6510/opcodes.h\
-@HAVE_SID_TRUE@sidplay-libs/libsidplay/src/player.h\
-@HAVE_SID_TRUE@sidplay-libs/libsidplay/include/sidplay/SmartPtr.h\
-@HAVE_SID_TRUE@sidplay-libs/libsidplay/include/sidplay/sidusage.h\
-@HAVE_SID_TRUE@sidplay-libs/libsidplay/include/sidplay/sidtypes.h\
-@HAVE_SID_TRUE@sidplay-libs/libsidplay/include/sidplay/sidplay2.h\
-@HAVE_SID_TRUE@sidplay-libs/libsidplay/include/sidplay/sidconfig.h\
-@HAVE_SID_TRUE@sidplay-libs/libsidplay/include/sidplay/SidTune.h\
-@HAVE_SID_TRUE@sidplay-libs/libsidplay/include/sidplay/sid2types.h\
-@HAVE_SID_TRUE@sidplay-libs/libsidplay/include/sidplay/c64env.h\
-@HAVE_SID_TRUE@sidplay-libs/libsidplay/include/sidplay/sidbuilder.h\
-@HAVE_SID_TRUE@sidplay-libs/libsidplay/include/sidplay/sidint.h\
-@HAVE_SID_TRUE@sidplay-libs/libsidplay/include/sidplay/component.h\
-@HAVE_SID_TRUE@sidplay-libs/libsidplay/include/sidplay/event.h\
-@HAVE_SID_TRUE@sidplay-libs/libsidplay/include/sidplay/sidendian.h\
-@HAVE_SID_TRUE@sidplay-libs/libsidplay/include/sidplay/Buffer.h\
-@HAVE_SID_TRUE@sidplay-libs/libsidplay/include/sidenv.h\
-@HAVE_SID_TRUE@sidplay-libs/libsidplay/include/config.h\
-@HAVE_SID_TRUE@sidplay-libs/builders/resid-builder/win/VC/config.h\
-@HAVE_SID_TRUE@sidplay-libs/builders/resid-builder/src/resid-emu.h\
-@HAVE_SID_TRUE@sidplay-libs/builders/resid-builder/include/sidplay/builders/resid.h\
-@HAVE_SID_TRUE@sidplay-libs/builders/resid-builder/include/config.h\
-@HAVE_SID_TRUE@sidplay-libs/resid/voice.h\
-@HAVE_SID_TRUE@sidplay-libs/resid/siddefs.h\
-@HAVE_SID_TRUE@sidplay-libs/resid/wave.h\
-@HAVE_SID_TRUE@sidplay-libs/resid/sid.h\
-@HAVE_SID_TRUE@sidplay-libs/resid/filter.h\
-@HAVE_SID_TRUE@sidplay-libs/resid/envelope.h\
-@HAVE_SID_TRUE@sidplay-libs/resid/spline.h\
-@HAVE_SID_TRUE@sidplay-libs/resid/pot.h\
-@HAVE_SID_TRUE@sidplay-libs/resid/extfilt.h\
-@HAVE_SID_TRUE@sidplay-libs/libsidplay/src/mos6510/cycle_based/mos6510c.i\
-@HAVE_SID_TRUE@sidplay-libs/libsidplay/src/mos6510/cycle_based/sid6510c.i\
-@HAVE_SID_TRUE@sidplay-libs/libsidplay/src/kernal.bin\
-@HAVE_SID_TRUE@sidplay-libs/libsidplay/src/psiddrv.bin\
-@HAVE_SID_TRUE@sidplay-libs/libsidplay/src/poweron.bin
+@HAVE_SID_TRUE@	sidplay-libs/libsidplay/src/mixer.cpp\
+@HAVE_SID_TRUE@	sidplay-libs/libsidplay/src/player.cpp\
+@HAVE_SID_TRUE@	sidplay-libs/libsidplay/src/mos656x/mos656x.cpp\
+@HAVE_SID_TRUE@	sidplay-libs/libsidplay/src/mos6510/mos6510.cpp\
+@HAVE_SID_TRUE@	sidplay-libs/libsidplay/src/sid6526/sid6526.cpp\
+@HAVE_SID_TRUE@	sidplay-libs/libsidplay/src/sidtune/MUS.cpp\
+@HAVE_SID_TRUE@	sidplay-libs/libsidplay/src/sidtune/SidTuneTools.cpp\
+@HAVE_SID_TRUE@	sidplay-libs/libsidplay/src/sidtune/InfoFile.cpp\
+@HAVE_SID_TRUE@	sidplay-libs/libsidplay/src/sidtune/SidTune.cpp\
+@HAVE_SID_TRUE@	sidplay-libs/libsidplay/src/sidtune/PSID.cpp\
+@HAVE_SID_TRUE@	sidplay-libs/libsidplay/src/sidtune/PP20.cpp\
+@HAVE_SID_TRUE@	sidplay-libs/libsidplay/src/sidtune/IconInfo.cpp\
+@HAVE_SID_TRUE@	sidplay-libs/libsidplay/src/event.cpp\
+@HAVE_SID_TRUE@	sidplay-libs/libsidplay/src/psiddrv.cpp\
+@HAVE_SID_TRUE@	sidplay-libs/libsidplay/src/config.cpp\
+@HAVE_SID_TRUE@	sidplay-libs/libsidplay/src/sidplay2.cpp\
+@HAVE_SID_TRUE@	sidplay-libs/libsidplay/src/xsid/xsid.cpp\
+@HAVE_SID_TRUE@	sidplay-libs/libsidplay/src/mos6526/mos6526.cpp\
+@HAVE_SID_TRUE@	sidplay-libs/builders/resid-builder/src/resid.cpp\
+@HAVE_SID_TRUE@	sidplay-libs/builders/resid-builder/src/resid-builder.cpp\
+@HAVE_SID_TRUE@	sidplay-libs/resid/wave8580_PS_.cpp\
+@HAVE_SID_TRUE@	sidplay-libs/resid/filter.cpp\
+@HAVE_SID_TRUE@	sidplay-libs/resid/pot.cpp\
+@HAVE_SID_TRUE@	sidplay-libs/resid/wave.cpp\
+@HAVE_SID_TRUE@	sidplay-libs/resid/version.cpp\
+@HAVE_SID_TRUE@	sidplay-libs/resid/wave6581__ST.cpp\
+@HAVE_SID_TRUE@	sidplay-libs/resid/extfilt.cpp\
+@HAVE_SID_TRUE@	sidplay-libs/resid/wave8580_PST.cpp\
+@HAVE_SID_TRUE@	sidplay-libs/resid/wave6581_PST.cpp\
+@HAVE_SID_TRUE@	sidplay-libs/resid/wave6581_P_T.cpp\
+@HAVE_SID_TRUE@	sidplay-libs/resid/wave6581_PS_.cpp\
+@HAVE_SID_TRUE@	sidplay-libs/resid/envelope.cpp\
+@HAVE_SID_TRUE@	sidplay-libs/resid/voice.cpp\
+@HAVE_SID_TRUE@	sidplay-libs/resid/sid.cpp\
+@HAVE_SID_TRUE@	sidplay-libs/resid/wave8580__ST.cpp\
+@HAVE_SID_TRUE@	sidplay-libs/resid/wave8580_P_T.cpp\
+@HAVE_SID_TRUE@	sidplay-libs/libsidplay/src/reloc65.c\
+@HAVE_SID_TRUE@	sidplay-libs/unix/config.h\
+@HAVE_SID_TRUE@	sidplay-libs/libsidplay/win/VC/sidconfig.h\
+@HAVE_SID_TRUE@	sidplay-libs/libsidplay/win/VC/sidint.h\
+@HAVE_SID_TRUE@	sidplay-libs/libsidplay/win/VC/config.h\
+@HAVE_SID_TRUE@	sidplay-libs/libsidplay/unix/sidconfig.h\
+@HAVE_SID_TRUE@	sidplay-libs/libsidplay/unix/sidint.h\
+@HAVE_SID_TRUE@	sidplay-libs/libsidplay/src/xsid/xsid.h\
+@HAVE_SID_TRUE@	sidplay-libs/libsidplay/src/mos6526/mos6526.h\
+@HAVE_SID_TRUE@	sidplay-libs/libsidplay/src/sid6526/sid6526.h\
+@HAVE_SID_TRUE@	sidplay-libs/libsidplay/src/mos656x/mos656x.h\
+@HAVE_SID_TRUE@	sidplay-libs/libsidplay/src/c64/c64xsid.h\
+@HAVE_SID_TRUE@	sidplay-libs/libsidplay/src/c64/c64cia.h\
+@HAVE_SID_TRUE@	sidplay-libs/libsidplay/src/c64/c64vic.h\
+@HAVE_SID_TRUE@	sidplay-libs/libsidplay/src/nullsid.h\
+@HAVE_SID_TRUE@	sidplay-libs/libsidplay/src/sidtune/PP20_Defs.h\
+@HAVE_SID_TRUE@	sidplay-libs/libsidplay/src/sidtune/SidTuneTools.h\
+@HAVE_SID_TRUE@	sidplay-libs/libsidplay/src/sidtune/SidTuneCfg.h\
+@HAVE_SID_TRUE@	sidplay-libs/libsidplay/src/sidtune/PP20.h\
+@HAVE_SID_TRUE@	sidplay-libs/libsidplay/src/mos6510/cycle_based/sid6510c.h\
+@HAVE_SID_TRUE@	sidplay-libs/libsidplay/src/mos6510/cycle_based/mos6510c.h\
+@HAVE_SID_TRUE@	sidplay-libs/libsidplay/src/mos6510/mos6510.h\
+@HAVE_SID_TRUE@	sidplay-libs/libsidplay/src/mos6510/conf6510.h\
+@HAVE_SID_TRUE@	sidplay-libs/libsidplay/src/mos6510/opcodes.h\
+@HAVE_SID_TRUE@	sidplay-libs/libsidplay/src/player.h\
+@HAVE_SID_TRUE@	sidplay-libs/libsidplay/include/sidplay/SmartPtr.h\
+@HAVE_SID_TRUE@	sidplay-libs/libsidplay/include/sidplay/sidusage.h\
+@HAVE_SID_TRUE@	sidplay-libs/libsidplay/include/sidplay/sidtypes.h\
+@HAVE_SID_TRUE@	sidplay-libs/libsidplay/include/sidplay/sidplay2.h\
+@HAVE_SID_TRUE@	sidplay-libs/libsidplay/include/sidplay/sidconfig.h\
+@HAVE_SID_TRUE@	sidplay-libs/libsidplay/include/sidplay/SidTune.h\
+@HAVE_SID_TRUE@	sidplay-libs/libsidplay/include/sidplay/sid2types.h\
+@HAVE_SID_TRUE@	sidplay-libs/libsidplay/include/sidplay/c64env.h\
+@HAVE_SID_TRUE@	sidplay-libs/libsidplay/include/sidplay/sidbuilder.h\
+@HAVE_SID_TRUE@	sidplay-libs/libsidplay/include/sidplay/sidint.h\
+@HAVE_SID_TRUE@	sidplay-libs/libsidplay/include/sidplay/component.h\
+@HAVE_SID_TRUE@	sidplay-libs/libsidplay/include/sidplay/event.h\
+@HAVE_SID_TRUE@	sidplay-libs/libsidplay/include/sidplay/sidendian.h\
+@HAVE_SID_TRUE@	sidplay-libs/libsidplay/include/sidplay/Buffer.h\
+@HAVE_SID_TRUE@	sidplay-libs/libsidplay/include/sidenv.h\
+@HAVE_SID_TRUE@	sidplay-libs/libsidplay/include/config.h\
+@HAVE_SID_TRUE@	sidplay-libs/builders/resid-builder/win/VC/config.h\
+@HAVE_SID_TRUE@	sidplay-libs/builders/resid-builder/src/resid-emu.h\
+@HAVE_SID_TRUE@	sidplay-libs/builders/resid-builder/include/sidplay/builders/resid.h\
+@HAVE_SID_TRUE@	sidplay-libs/builders/resid-builder/include/config.h\
+@HAVE_SID_TRUE@	sidplay-libs/resid/voice.h\
+@HAVE_SID_TRUE@	sidplay-libs/resid/siddefs.h\
+@HAVE_SID_TRUE@	sidplay-libs/resid/wave.h\
+@HAVE_SID_TRUE@	sidplay-libs/resid/sid.h\
+@HAVE_SID_TRUE@	sidplay-libs/resid/filter.h\
+@HAVE_SID_TRUE@	sidplay-libs/resid/envelope.h\
+@HAVE_SID_TRUE@	sidplay-libs/resid/spline.h\
+@HAVE_SID_TRUE@	sidplay-libs/resid/pot.h\
+@HAVE_SID_TRUE@	sidplay-libs/resid/extfilt.h\
+@HAVE_SID_TRUE@	sidplay-libs/libsidplay/src/mos6510/cycle_based/mos6510c.i\
+@HAVE_SID_TRUE@	sidplay-libs/libsidplay/src/mos6510/cycle_based/sid6510c.i\
+@HAVE_SID_TRUE@	sidplay-libs/libsidplay/src/kernal.bin\
+@HAVE_SID_TRUE@	sidplay-libs/libsidplay/src/psiddrv.bin\
+@HAVE_SID_TRUE@	sidplay-libs/libsidplay/src/poweron.bin
 
 @HAVE_SID_TRUE@sid_la_LDFLAGS = -module -avoid-version $(NOCPPLIB)
 @HAVE_SID_TRUE@AM_CFLAGS = $(CFLAGS) -std=c99 -I$(sidpath)/libsidplay/include -I$(sidpath)/builders/resid-builder/include -fPIC
-@HAVE_SID_TRUE@AM_CPPFLAGS = $(CXXFLAGS) -DHAVE_UNIX -I$(sidpath) -I$(sidpath)/unix -I$(sidpath)/libsidplay -I$(sidpath)/libsidplay/include -I$(sidpath)/libsidplay/include/sidplay -I$(sidpath)/libsidutils/include/sidplay/utils -I$(sidpath)/builders/resid-builder/include/sidplay/builders -I$(sidpath)/builders/resid-builder/include -DHAVE_STRCASECMP -DHAVE_STRNCASECMP -fno-exceptions -fno-rtti -fno-unwind-tables
+@HAVE_SID_TRUE@AM_CXXFLAGS = $(CXXFLAGS) -DHAVE_UNIX -I$(sidpath) -I$(sidpath)/unix -I$(sidpath)/libsidplay -I$(sidpath)/libsidplay/include -I$(sidpath)/libsidplay/include/sidplay -I$(sidpath)/libsidutils/include/sidplay/utils -I$(sidpath)/builders/resid-builder/include/sidplay/builders -I$(sidpath)/builders/resid-builder/include -DHAVE_STRCASECMP -DHAVE_STRNCASECMP -fno-exceptions -fno-rtti -fno-unwind-tables
 all: all-am
 
 .SUFFIXES:

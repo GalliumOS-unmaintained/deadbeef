@@ -44,6 +44,7 @@
 #include "ctype.h"
 #include "utf8.h"
 #include "u8_lc_map.h"
+#include "u8_uc_map.h"
 
 static const uint32_t offsetsFromUTF8[6] = {
     0x00000000UL, 0x00003080UL, 0x000E2080UL,
@@ -157,7 +158,7 @@ int u8_toutf8(char *dest, int32_t sz, uint32_t *src, int32_t srcsz)
     return i;
 }
 
-int u8_wc_toutf8(char *dest, wchar_t ch)
+int u8_wc_toutf8(char *dest, uint32_t ch)
 {
     if (ch < 0x80) {
         dest[0] = (char)ch;
@@ -236,6 +237,51 @@ uint32_t u8_nextchar(const char *s, int32_t *i)
     ch -= offsetsFromUTF8[sz-1];
 
     return ch;
+}
+
+/* copies num_chars characters from src to dest, return bytes written */
+int u8_strncpy (char *dest, const char* src, int num_chars)
+{
+    const char *s = src;
+    int32_t num_bytes = 0;
+    while (num_chars && *s) {
+        int32_t i = 0;
+        u8_nextchar (s, &i);
+        num_chars--;
+        num_bytes += i;
+        s += i;
+    }
+    strncpy (dest, src, s - src);
+    dest[s - src] = 0;
+    return num_bytes;
+}
+
+int u8_strnbcpy (char *dest, const char* src, int num_bytes) {
+    int32_t prev_index = 0;
+    int32_t index = 0;
+    int32_t nb = num_bytes;
+    while (src[index] && num_bytes > 0) {
+        u8_inc (src, &index);
+        int32_t charlen = index - prev_index;
+        if (charlen > num_bytes) {
+            break;
+        }
+        memcpy (dest, &src[prev_index], charlen);
+        prev_index = index;
+        dest += charlen;
+        num_bytes -= charlen;
+    }
+    return nb - num_bytes;
+}
+
+int u8_charcpy (char *dest, const char *src, int num_bytes) {
+    int32_t index = 0;
+    u8_inc (src, &index);
+    if (index > num_bytes) {
+        return 0;
+    }
+    memcpy (dest, src, index);
+    return index;
 }
 
 void u8_inc(const char *s, int32_t *i)
@@ -636,7 +682,7 @@ u8_tolower_slow (const char *input, int len, char *out) {
 int
 u8_tolower (const signed char *c, int l, char *out) {
     if (*c >= 65 && *c <= 90) {
-        *out = *c + 0x20;//tolower (*c);
+        *out = *c + 0x20;
         out[1] = 0;
         return 1;
     }
@@ -647,6 +693,41 @@ u8_tolower (const signed char *c, int l, char *out) {
     }
     else {
         int ll = u8_tolower_slow (c, l, out);
+        if (ll) {
+            return ll;
+        }
+        memcpy (out, c, l);
+        out[l] = 0;
+        return l;
+    }
+}
+
+int
+u8_toupper_slow (const char *input, int len, char *out) {
+    struct u8_uppercase_map_t *uc = u8_uc_in_word_set (input, len);
+    if (uc) {
+        int ll = strlen (uc->upper);
+        memcpy (out, uc->upper, ll);
+        out[ll] = 0;
+        return ll;
+    }
+    return 0;
+}
+
+int
+u8_toupper (const signed char *c, int l, char *out) {
+    if (*c >= 97 && *c <= 122) {
+        *out = *c - 0x20;
+        out[1] = 0;
+        return 1;
+    }
+    else if (*c > 0) {
+        *out = *c;
+        out[1] = 0;
+        return 1;
+    }
+    else {
+        int ll = u8_toupper_slow (c, l, out);
         if (ll) {
             return ll;
         }
@@ -760,11 +841,11 @@ u8_strcasecmp (const char *a, const char *b) {
         p2 += i2;
     }
 
-    if (*p1 == 0) {
-        return -1;
-    }
-    else if (*p2 == 0) {
+    if (*p1) {
         return 1;
+    }
+    else if (*p2) {
+        return -1;
     }
 
     return 0;

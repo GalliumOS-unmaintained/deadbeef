@@ -1,21 +1,27 @@
 /*
-    DeaDBeeF - The Ultimate Music Player
-    Copyright (C) 2009-2013 Alexey Yakovenko <waker@users.sourceforge.net>
+    DeaDBeeF -- the music player
+    Copyright (C) 2009-2015 Alexey Yakovenko and other contributors
 
-    This program is free software; you can redistribute it and/or
-    modify it under the terms of the GNU General Public License
-    as published by the Free Software Foundation; either version 2
-    of the License, or (at your option) any later version.
-    
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
-    
-    You should have received a copy of the GNU General Public License
-    along with this program; if not, write to the Free Software
-    Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+    This software is provided 'as-is', without any express or implied
+    warranty.  In no event will the authors be held liable for any damages
+    arising from the use of this software.
+
+    Permission is granted to anyone to use this software for any purpose,
+    including commercial applications, and to alter it and redistribute it
+    freely, subject to the following restrictions:
+
+    1. The origin of this software must not be misrepresented; you must not
+     claim that you wrote the original software. If you use this software
+     in a product, an acknowledgment in the product documentation would be
+     appreciated but is not required.
+
+    2. Altered source versions must be plainly marked as such, and must not be
+     misrepresented as being the original software.
+
+    3. This notice may not be removed or altered from any source distribution.
 */
+
+
 #include "../../deadbeef.h"
 #include <gtk/gtk.h>
 #ifdef HAVE_CONFIG_H
@@ -66,18 +72,11 @@
 static ddb_gtkui_t plugin;
 DB_functions_t *deadbeef;
 
-// cover art loading plugin
-DB_artwork_plugin_t *coverart_plugin = NULL;
-
 // main widgets
 GtkWidget *mainwin;
 GtkWidget *searchwin;
 GtkStatusIcon *trayicon;
 GtkWidget *traymenu;
-
-// playlist theming
-GtkWidget *theme_treeview;
-GtkWidget *theme_button;
 
 static int gtkui_accept_messages = 0;
 
@@ -95,6 +94,17 @@ void (*gtkui_original_pl_add_files_end) (void);
 
 // cached config variables
 int gtkui_embolden_current_track;
+int gtkui_embolden_tracks;
+int gtkui_embolden_selected_tracks;
+int gtkui_italic_selected_tracks;
+int gtkui_italic_tracks;
+int gtkui_italic_current_track;
+
+int gtkui_tabstrip_embolden_playing;
+int gtkui_tabstrip_italic_playing;
+int gtkui_tabstrip_embolden_selected;
+int gtkui_tabstrip_italic_selected;
+
 int gtkui_groups_pinned;
 
 #ifdef __APPLE__
@@ -105,19 +115,6 @@ int gtkui_unicode_playstate = 0;
 int gtkui_disable_seekbar_overlay = 0;
 
 #define TRAY_ICON "deadbeef_tray_icon"
-
-// that must be called before gtk_init
-void
-gtkpl_init (void) {
-    theme_treeview = gtk_tree_view_new ();
-    gtk_widget_show (theme_treeview);
-    gtk_widget_set_can_focus (theme_treeview, FALSE);
-    GtkWidget *vbox1 = lookup_widget (mainwin, "vbox1");
-    gtk_box_pack_start (GTK_BOX (vbox1), theme_treeview, FALSE, FALSE, 0);
-    gtk_tree_view_set_rules_hint (GTK_TREE_VIEW (theme_treeview), TRUE);
-
-    theme_button = mainwin;//lookup_widget (mainwin, "stopbtn");
-}
 
 void
 gtkpl_free (DdbListview *pl) {
@@ -230,7 +227,6 @@ update_songinfo (gpointer ctx) {
         strcpy (sb_text, sbtext_new);
 
         // form statusline
-        // FIXME: don't update if window is not visible
         GtkStatusbar *sb = GTK_STATUSBAR (lookup_widget (mainwin, "statusbar"));
         if (sb_context_id == -1) {
             sb_context_id = gtk_statusbar_get_context_id (sb, "msg");
@@ -399,6 +395,36 @@ gtkpl_songchanged_wrapper (DB_playItem_t *from, DB_playItem_t *to) {
     }
 }
 
+const char *gtkui_default_titlebar_playing = "%artist% - %title% - DeaDBeeF-%_deadbeef_version%";
+const char *gtkui_default_titlebar_stopped = "DeaDBeeF-%_deadbeef_version%";
+
+static char *titlebar_playing_bc;
+static char *titlebar_stopped_bc;
+
+static void
+titlebar_tf_free (void) {
+    if (titlebar_playing_bc) {
+        deadbeef->tf_free (titlebar_playing_bc);
+        titlebar_playing_bc = NULL;
+    }
+
+    if (titlebar_stopped_bc) {
+        deadbeef->tf_free (titlebar_stopped_bc);
+        titlebar_stopped_bc = NULL;
+    }
+}
+
+void
+gtkui_titlebar_tf_init (void) {
+    titlebar_tf_free ();
+
+    char fmt[500];
+    deadbeef->conf_get_str ("gtkui.titlebar_playing_tf", gtkui_default_titlebar_playing, fmt, sizeof (fmt));
+    titlebar_playing_bc = deadbeef->tf_compile (fmt);
+    deadbeef->conf_get_str ("gtkui.titlebar_stopped_tf", gtkui_default_titlebar_stopped, fmt, sizeof (fmt));
+    titlebar_stopped_bc = deadbeef->tf_compile (fmt);
+}
+
 void
 gtkui_set_titlebar (DB_playItem_t *it) {
     if (!it) {
@@ -407,15 +433,19 @@ gtkui_set_titlebar (DB_playItem_t *it) {
     else {
         deadbeef->pl_item_ref (it);
     }
-    char fmt[500];
-    char str[600];
-    if (it) {
-        deadbeef->conf_get_str ("gtkui.titlebar_playing", "%a - %t - DeaDBeeF-%V", fmt, sizeof (fmt));
+    char str[1024];
+    ddb_tf_context_t ctx = {
+        ._size = sizeof (ddb_tf_context_t),
+        .it = it,
+        // FIXME: current playlist is not correct here.
+        // need the playlist corresponding to the pointed track
+        .plt = deadbeef->plt_get_curr (),
+    };
+    deadbeef->tf_eval (&ctx, it ? titlebar_playing_bc : titlebar_stopped_bc, str, sizeof (str));
+    if (ctx.plt) {
+        deadbeef->plt_unref (ctx.plt);
+        ctx.plt = NULL;
     }
-    else {
-        deadbeef->conf_get_str ("gtkui.titlebar_stopped", "DeaDBeeF-%V", fmt, sizeof (fmt));
-    }
-    deadbeef->pl_format_title (it, -1, str, sizeof (str), -1, fmt);
     gtk_window_set_title (GTK_WINDOW (mainwin), str);
     if (it) {
         deadbeef->pl_item_unref (it);
@@ -465,7 +495,7 @@ playlist_refresh (void) {
 }
 
 static gboolean
-playlistchanged_cb (gpointer none) {
+playlistcontentchanged_cb (gpointer none) {
     playlist_refresh ();
     return FALSE;
 }
@@ -600,8 +630,19 @@ gtkui_on_configchanged (void *data) {
     int stop_after_album = deadbeef->conf_get_int ("playlist.stop_after_album", 0);
     gtk_check_menu_item_set_active (GTK_CHECK_MENU_ITEM (lookup_widget (mainwin, "stop_after_album")), stop_after_album ? TRUE : FALSE);
 
-    // embolden current track
     gtkui_embolden_current_track = deadbeef->conf_get_int ("gtkui.embolden_current_track", 0);
+    gtkui_embolden_tracks = deadbeef->conf_get_int ("gtkui.embolden_tracks", 0);
+    gtkui_embolden_selected_tracks = deadbeef->conf_get_int ("gtkui.embolden_selected_tracks", 0);
+    gtkui_italic_current_track = deadbeef->conf_get_int ("gtkui.italic_current_track", 0);
+    gtkui_italic_tracks = deadbeef->conf_get_int ("gtkui.italic_tracks", 0);
+    gtkui_italic_selected_tracks = deadbeef->conf_get_int ("gtkui.italic_selected_tracks", 0);
+    gtkui_tabstrip_embolden_playing = deadbeef->conf_get_int ("gtkui.tabstrip_embolden_playing", 0);
+    gtkui_tabstrip_italic_playing = deadbeef->conf_get_int ("gtkui.tabstrip_italic_playing", 0);
+    gtkui_tabstrip_embolden_selected = deadbeef->conf_get_int ("gtkui.tabstrip_embolden_selected", 0);
+    gtkui_tabstrip_italic_selected = deadbeef->conf_get_int ("gtkui.tabstrip_italic_selected", 0);
+
+    // titlebar tf
+    gtkui_titlebar_tf_init ();
 
     // pin groups
     gtkui_groups_pinned = deadbeef->conf_get_int ("playlist.pin.groups", 0);
@@ -772,7 +813,7 @@ gtkui_message (uint32_t id, uintptr_t ctx, uint32_t p1, uint32_t p2) {
     if (rootwidget) {
         send_messages_to_widgets (rootwidget, id, ctx, p1, p2);
     }
-    gtkui_cover_message (id, ctx, p1, p2);
+
     switch (id) {
     case DB_EV_ACTIVATED:
         g_idle_add (activate_cb, NULL);
@@ -796,7 +837,9 @@ gtkui_message (uint32_t id, uintptr_t ctx, uint32_t p1, uint32_t p2) {
 //        g_idle_add (paused_cb, NULL);
 //        break;
     case DB_EV_PLAYLISTCHANGED:
-        g_idle_add (playlistchanged_cb, NULL);
+        if (p1 == DDB_PLAYLIST_CHANGE_CONTENT) {
+            g_idle_add (playlistcontentchanged_cb, NULL);
+        }
         break;
     case DB_EV_CONFIGCHANGED:
         g_idle_add (gtkui_on_configchanged, NULL);
@@ -880,16 +923,6 @@ gtkui_connect_cb (void *none) {
         }
     }
 
-    // cover_art
-    DB_plugin_t **plugins = deadbeef->plug_get_list ();
-    for (int i = 0; plugins[i]; i++) {
-        DB_plugin_t *p = plugins[i];
-        if (p->id && !strcmp (p->id, "artwork") && p->version_major == 1 && p->version_minor >= 2) {
-            trace ("gtkui: found cover-art loader plugin\n");
-            coverart_plugin = (DB_artwork_plugin_t *)p;
-            break;
-        }
-    }
     add_mainmenu_actions ();
     ddb_event_t *e = deadbeef->event_alloc (DB_EV_TRACKINFOCHANGED);
     deadbeef->event_send(e, 0, 0);
@@ -924,6 +957,27 @@ gtkui_add_file_end_cb (ddb_fileadd_data_t *data, void *user_data) {
     }
 }
 
+typedef struct {
+    void (*callback) (void *userdata);
+    void *userdata;
+} window_init_hook_t;
+
+#define WINDOW_INIT_HOOK_MAX 10
+static window_init_hook_t window_init_hooks[WINDOW_INIT_HOOK_MAX];
+static int window_init_hooks_count;
+
+static void
+add_window_init_hook (void (*callback) (void *userdata), void *userdata) {
+    if (window_init_hooks_count >= WINDOW_INIT_HOOK_MAX) {
+        fprintf (stderr, "gtkui: add_window_init_hook can't add another hook, maximum number of hooks (%d) exceeded\n", (int)WINDOW_INIT_HOOK_MAX);
+        return;
+    }
+
+    window_init_hooks[window_init_hooks_count].callback = callback;
+    window_init_hooks[window_init_hooks_count].userdata = userdata;
+    window_init_hooks_count++;
+}
+
 int
 gtkui_thread (void *ctx) {
 #ifdef __linux__
@@ -944,12 +998,9 @@ gtkui_thread (void *ctx) {
 
     // let's start some gtk
     g_thread_init (NULL);
-#ifndef __FreeBSD__
-    // this call makes gtk_main hang on freebsd for unknown reason
-    // however, if we don't have this call, deadbeef will crash randomly on
-    // gentoo linux
     gdk_threads_init ();
-#endif
+    gdk_threads_enter ();
+
     gtk_init (&argc, (char ***)&argv);
 
     // register widget types
@@ -960,7 +1011,7 @@ gtkui_thread (void *ctx) {
     w_reg_widget (_("Splitter (top and bottom)"), 0, w_vsplitter_create, "vsplitter", NULL);
     w_reg_widget (_("Splitter (left and right)"), 0, w_hsplitter_create, "hsplitter", NULL);
     w_reg_widget (NULL, 0, w_placeholder_create, "placeholder", NULL);
-//    w_reg_widget (_("Tabs"), 0, w_tabs_create, "tabs", NULL);
+    w_reg_widget (_("Tabs"), 0, w_tabs_create, "tabs", NULL);
     w_reg_widget (_("Playlist tabs"), 0, w_tabstrip_create, "tabstrip", NULL);
     w_reg_widget (_("Selection properties"), 0, w_selproperties_create, "selproperties", NULL);
     w_reg_widget (_("Album art display"), 0, w_coverart_create, "coverart", NULL);
@@ -994,7 +1045,7 @@ gtkui_thread (void *ctx) {
     gtk_widget_set_events (GTK_WIDGET (mainwin), gtk_widget_get_events (GTK_WIDGET (mainwin)) | GDK_SCROLL_MASK);
 #endif
 
-    gtkpl_init ();
+    pl_common_init();
 
     GtkIconTheme *theme = gtk_icon_theme_get_default();
     if (gtk_icon_theme_has_icon(theme, "deadbeef")) {
@@ -1049,15 +1100,14 @@ gtkui_thread (void *ctx) {
 #endif
 #endif
 
+    for (int i = 0; i < window_init_hooks_count; i++) {
+        window_init_hooks[i].callback (window_init_hooks[i].userdata);
+    }
     gtk_widget_show (mainwin);
 
     init_widget_layout ();
 
-    char fmt[500];
-    char str[600];
-    deadbeef->conf_get_str ("gtkui.titlebar_stopped", "DeaDBeeF-%V", fmt, sizeof (fmt));
-    deadbeef->pl_format_title (NULL, -1, str, sizeof (str), -1, fmt);
-    gtk_window_set_title (GTK_WINDOW (mainwin), str);
+    gtkui_set_titlebar (NULL);
 
     fileadded_listener_id = deadbeef->listen_file_added (gtkui_add_file_info_cb, NULL);
     fileadd_beginend_listener_id = deadbeef->listen_file_add_beginend (gtkui_add_file_begin_cb, gtkui_add_file_end_cb, NULL);
@@ -1067,12 +1117,14 @@ gtkui_thread (void *ctx) {
     gtkui_connect_cb (NULL);
 
     gtkui_accept_messages = 1;
-    deadbeef->sendmessage (DB_EV_PLAYLISTCHANGED, 0, 0, 0);
+    deadbeef->sendmessage (DB_EV_PLAYLISTCHANGED, 0, DDB_PLAYLIST_CHANGE_CONTENT, 0);
 
 #ifdef __APPLE__
     gtkui_is_retina = is_retina (mainwin);
 #endif
+
     gtk_main ();
+
     deadbeef->unlisten_file_added (fileadded_listener_id);
     deadbeef->unlisten_file_add_beginend (fileadd_beginend_listener_id);
 
@@ -1087,11 +1139,9 @@ gtkui_thread (void *ctx) {
     trkproperties_destroy ();
     progress_destroy ();
     gtkui_hide_status_icon ();
+    pl_common_free();
 //    draw_free ();
-    if (theme_treeview) {
-        gtk_widget_destroy (theme_treeview);
-        theme_treeview = NULL;
-    }
+    titlebar_tf_free ();
     if (mainwin) {
         gtk_widget_destroy (mainwin);
         mainwin = NULL;
@@ -1100,6 +1150,7 @@ gtkui_thread (void *ctx) {
         gtk_widget_destroy (searchwin);
         searchwin = NULL;
     }
+    gdk_threads_leave ();
     return 0;
 }
 
@@ -1167,6 +1218,8 @@ gtkui_show_info_window (const char *fname, const char *title, GtkWidget **pwindo
 
 gboolean
 gtkui_quit_cb (void *ctx) {
+    w_save ();
+
     if (deadbeef->have_background_jobs ()) {
         GtkWidget *dlg = gtk_message_dialog_new (GTK_WINDOW (mainwin), GTK_DIALOG_MODAL, GTK_MESSAGE_WARNING, GTK_BUTTONS_YES_NO, _("The player is currently running background tasks. If you quit now, the tasks will be cancelled or interrupted. This may result in data loss."));
         gtk_window_set_transient_for (GTK_WINDOW (dlg), GTK_WINDOW (mainwin));
@@ -1194,9 +1247,29 @@ gtkui_quit (void) {
     gdk_threads_add_idle (gtkui_quit_cb, NULL);
 }
 
+static void
+import_legacy_tf (const char *key_from, const char *key_to) {
+    deadbeef->conf_lock ();
+    if (!deadbeef->conf_get_str_fast (key_to, NULL)
+            && deadbeef->conf_get_str_fast (key_from, NULL)) {
+        char old[200], new[200];
+        deadbeef->conf_get_str (key_from, "", old, sizeof (old));
+        deadbeef->tf_import_legacy (old, new, sizeof (new));
+        deadbeef->conf_set_str (key_to, new);
+        deadbeef->conf_save ();
+    }
+    deadbeef->conf_unlock ();
+}
+
 static int
 gtkui_start (void) {
     fprintf (stderr, "gtkui plugin compiled for gtk version: %d.%d.%d\n", GTK_MAJOR_VERSION, GTK_MINOR_VERSION, GTK_MICRO_VERSION);
+
+    import_legacy_tf ("gtkui.titlebar_playing", "gtkui.titlebar_playing_tf");
+    import_legacy_tf ("gtkui.titlebar_stopped", "gtkui.titlebar_stopped_tf");
+
+    import_legacy_tf ("playlist.group_by", "gtkui.playlist.group_by_tf");
+
     gtkui_thread (NULL);
 
     return 0;
@@ -1210,8 +1283,6 @@ gtkui_connect (void) {
 static int
 gtkui_disconnect (void) {
     supereq_plugin = NULL;
-    coverart_plugin = NULL;
-
     return 0;
 }
 
@@ -1223,18 +1294,15 @@ quit_gtk_cb (gpointer nothing) {
     trkproperties_destroy ();
     search_destroy ();
     gtk_main_quit ();
+    trace ("gtkui_stop completed\n");
     return FALSE;
 }
 
 static int
 gtkui_stop (void) {
-    if (coverart_plugin) {
-        coverart_plugin->plugin.plugin.stop ();
-        coverart_plugin = NULL;
-    }
     trace ("quitting gtk\n");
+    cover_art_disconnect();
     g_idle_add (quit_gtk_cb, NULL);
-    trace ("gtkui_stop completed\n");
     return 0;
 }
 
@@ -1463,7 +1531,7 @@ static DB_plugin_action_t action_crop_selected = {
 };
 
 static DB_plugin_action_t action_remove_from_playlist = {
-    .title = "Edit/Remove Track(s) From Current Playlist",
+    .title = "Edit/Remove Track(s) From Playlist",
     .name = "remove_from_playlist",
     .flags = DB_ACTION_MULTIPLE_TRACKS,
     .callback2 = action_remove_from_playlist_handler,
@@ -1592,7 +1660,7 @@ static const char settings_dlg[] =
 // define plugin interface
 static ddb_gtkui_t plugin = {
     .gui.plugin.api_vmajor = 1,
-    .gui.plugin.api_vminor = 5,
+    .gui.plugin.api_vminor = 6,
     .gui.plugin.version_major = DDB_GTKUI_API_VERSION_MAJOR,
     .gui.plugin.version_minor = DDB_GTKUI_API_VERSION_MINOR,
     .gui.plugin.type = DB_PLUGIN_GUI,
@@ -1605,21 +1673,43 @@ static ddb_gtkui_t plugin = {
     .gui.plugin.descr = "User interface using GTK+ 2.x",
 #endif
     .gui.plugin.copyright = 
-        "Copyright (C) 2009-2013 Alexey Yakovenko <waker@users.sourceforge.net>\n"
+        "GTK+ user interface for DeaDBeeF Player.\n"
+        "Copyright (C) 2009-2015 Alexey Yakovenko and other contributors\n"
         "\n"
-        "This program is free software; you can redistribute it and/or\n"
-        "modify it under the terms of the GNU General Public License\n"
-        "as published by the Free Software Foundation; either version 2\n"
-        "of the License, or (at your option) any later version.\n"
+        "This software is provided 'as-is', without any express or implied\n"
+        "warranty.  In no event will the authors be held liable for any damages\n"
+        "arising from the use of this software.\n"
         "\n"
-        "This program is distributed in the hope that it will be useful,\n"
+        "Permission is granted to anyone to use this software for any purpose,\n"
+        "including commercial applications, and to alter it and redistribute it\n"
+        "freely, subject to the following restrictions:\n"
+        "\n"
+        "1. The origin of this software must not be misrepresented; you must not\n"
+        " claim that you wrote the original software. If you use this software\n"
+        " in a product, an acknowledgment in the product documentation would be\n"
+        " appreciated but is not required.\n"
+        "\n"
+        "2. Altered source versions must be plainly marked as such, and must not be\n"
+        " misrepresented as being the original software.\n"
+        "\n"
+        "3. This notice may not be removed or altered from any source distribution.\n"
+        "\n"
+        "\n"
+        "GTK - The GIMP Toolkit\n"
+        "Copyright (C) GTK Developers\n"
+        "\n"
+        "This library is free software; you can redistribute it and/or\n"
+        "modify it under the terms of the GNU Lesser General Public\n"
+        "License as published by the Free Software Foundation; either\n"
+        "version 2 of the License, or (at your option) any later version.\n"
+        "\n"
+        "This library is distributed in the hope that it will be useful,\n"
         "but WITHOUT ANY WARRANTY; without even the implied warranty of\n"
-        "MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the\n"
-        "GNU General Public License for more details.\n"
+        "MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU\n"
+        "Lesser General Public License for more details.\n"
         "\n"
-        "You should have received a copy of the GNU General Public License\n"
-        "along with this program; if not, write to the Free Software\n"
-        "Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.\n"
+        "You should have received a copy of the GNU Lesser General Public\n"
+        "License along with this library. If not, see <http://www.gnu.org/licenses/>.\n"
     ,
     .gui.plugin.website = "http://deadbeef.sf.net",
     .gui.plugin.start = gtkui_start,
@@ -1644,6 +1734,9 @@ static ddb_gtkui_t plugin = {
     .w_replace = w_replace,
     .w_remove = w_remove,
     .create_pltmenu = gtkui_create_pltmenu,
-    .get_cover_art_pixbuf = get_cover_art_callb,
+    .get_cover_art_pixbuf = get_cover_art_callb, // deprecated
+    .get_cover_art_primary = get_cover_art_primary,
+    .get_cover_art_thumb = get_cover_art_thumb,
     .cover_get_default_pixbuf = cover_get_default_pixbuf,
+    .add_window_init_hook = add_window_init_hook,
 };

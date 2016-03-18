@@ -373,6 +373,8 @@ INTL_DEFAULT_VERBOSITY = @INTL_DEFAULT_VERBOSITY@
 INTL_LIBS = @INTL_LIBS@
 INTL_LIBTOOL_SUFFIX_PREFIX = @INTL_LIBTOOL_SUFFIX_PREFIX@
 INTL_MACOSX_LIBS = @INTL_MACOSX_LIBS@
+JANSSON_CFLAGS = @JANSSON_CFLAGS@
+JANSSON_LIBS = @JANSSON_LIBS@
 JPEG_DEPS_CFLAGS = @JPEG_DEPS_CFLAGS@
 JPEG_DEPS_LIBS = @JPEG_DEPS_LIBS@
 LD = @LD@
@@ -405,6 +407,8 @@ MAINT = @MAINT@
 MAKEINFO = @MAKEINFO@
 MANIFEST_TOOL = @MANIFEST_TOOL@
 MKDIR_P = @MKDIR_P@
+MPG123_CFLAGS = @MPG123_CFLAGS@
+MPG123_LIBS = @MPG123_LIBS@
 MSGFMT = @MSGFMT@
 MSGFMT_015 = @MSGFMT_015@
 MSGMERGE = @MSGMERGE@
@@ -525,11 +529,10 @@ top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
 @HAVE_ADPLUG_TRUE@adplugpath = @top_srcdir@/plugins/adplug
-@HAVE_ADPLUG_TRUE@adlibdir = $(libdir)/$(PACKAGE)
 @HAVE_ADPLUG_TRUE@pkglib_LTLIBRARIES = adplug.la
 @HAVE_ADPLUG_TRUE@AM_CFLAGS = $(CFLAGS) -std=c99 -I$(adplugpath)/adplug -I$(adplugpath)/libbinio -fPIC
 @HAVE_ADPLUG_TRUE@adplug_la_LDFLAGS = -module -avoid-version $(NOCPPLIB) -lm
-@HAVE_ADPLUG_TRUE@AM_CPPFLAGS = $(CXXFLAGS) -Dstricmp=strcasecmp -DVERSION=\"2.1\" -I$(adplugpath)/adplug -I$(adplugpath)/libbinio -fno-exceptions -fno-rtti -fno-unwind-tables
+@HAVE_ADPLUG_TRUE@AM_CXXFLAGS = $(CXXFLAGS) -Dstricmp=strcasecmp -DVERSION=\"2.1\" -I$(adplugpath)/adplug -I$(adplugpath)/libbinio -fno-exceptions -fno-rtti -fno-unwind-tables
 @HAVE_ADPLUG_TRUE@adplug_la_SOURCES = plugin.c\
 @HAVE_ADPLUG_TRUE@                   adplug-db.cpp\
 @HAVE_ADPLUG_TRUE@				   libbinio/binfile.h\

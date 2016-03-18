@@ -743,15 +743,55 @@ action_seek_1p_backward_cb (struct DB_plugin_action_s *action, int ctx) {
     return 0;
 }
 
+static int
+seek_sec (float sec) {
+    deadbeef->pl_lock ();
+    DB_playItem_t *it = deadbeef->streamer_get_playing_track ();
+    if (it) {
+        float dur = deadbeef->pl_get_item_duration (it);
+        if (dur > 0) {
+            float pos = deadbeef->streamer_get_playpos ();
+            pos += sec;
+            if (pos < 0) {
+                pos = 0;
+            }
+            deadbeef->sendmessage (DB_EV_SEEK, 0, pos * 1000, 0);
+        }
+        deadbeef->pl_item_unref (it);
+    }
+    deadbeef->pl_unlock ();
+    return 0;
+}
+
+int
+action_seek_1s_forward_cb (struct DB_plugin_action_s *action, int ctx) {
+    return seek_sec (1.f);
+}
+
+int
+action_seek_1s_backward_cb (struct DB_plugin_action_s *action, int ctx) {
+    return seek_sec (-1.f);
+}
+
+int
+action_seek_5s_forward_cb (struct DB_plugin_action_s *action, int ctx) {
+    return seek_sec (5.f);
+}
+
+int
+action_seek_5s_backward_cb (struct DB_plugin_action_s *action, int ctx) {
+    return seek_sec (-5.f);
+}
+
 int
 action_volume_up_cb (struct DB_plugin_action_s *action, int ctx) {
-    deadbeef->volume_set_db (deadbeef->volume_get_db () + 2);
+    deadbeef->volume_set_db (deadbeef->volume_get_db () + 1);
     return 0;
 }
 
 int
 action_volume_down_cb (struct DB_plugin_action_s *action, int ctx) {
-    deadbeef->volume_set_db (deadbeef->volume_get_db () - 2);
+    deadbeef->volume_set_db (deadbeef->volume_get_db () - 1);
     return 0;
 }
 
@@ -789,12 +829,76 @@ static DB_plugin_action_t action_jump_to_current = {
     .next = &action_reload_metadata
 };
 
+static DB_plugin_action_t action_skip_to_prev_genre = {
+    .title = "Playback/Skip to/Previous genre",
+    .name = "skip_to_prev_genre",
+    .flags = DB_ACTION_COMMON | DB_ACTION_ADD_MENU,
+    .callback2 = action_skip_to_prev_genre_handler,
+    .next = &action_jump_to_current
+};
+
+static DB_plugin_action_t action_skip_to_prev_composer = {
+    .title = "Playback/Skip to/Previous composer",
+    .name = "skip_to_prev_composer",
+    .flags = DB_ACTION_COMMON | DB_ACTION_ADD_MENU,
+    .callback2 = action_skip_to_prev_composer_handler,
+    .next = &action_skip_to_prev_genre
+};
+
+static DB_plugin_action_t action_skip_to_prev_artist = {
+    .title = "Playback/Skip to/Previous artist",
+    .name = "skip_to_prev_artist",
+    .flags = DB_ACTION_COMMON | DB_ACTION_ADD_MENU,
+    .callback2 = action_skip_to_prev_artist_handler,
+    .next = &action_skip_to_prev_composer
+};
+
+static DB_plugin_action_t action_skip_to_prev_album = {
+    .title = "Playback/Skip to/Previous album",
+    .name = "skip_to_prev_album",
+    .flags = DB_ACTION_COMMON | DB_ACTION_ADD_MENU,
+    .callback2 = action_skip_to_prev_album_handler,
+    .next = &action_skip_to_prev_artist
+};
+
+static DB_plugin_action_t action_skip_to_next_genre = {
+    .title = "Playback/Skip to/Next genre",
+    .name = "skip_to_next_genre",
+    .flags = DB_ACTION_COMMON | DB_ACTION_ADD_MENU,
+    .callback2 = action_skip_to_next_genre_handler,
+    .next = &action_skip_to_prev_album
+};
+
+static DB_plugin_action_t action_skip_to_next_composer = {
+    .title = "Playback/Skip to/Next composer",
+    .name = "skip_to_next_composer",
+    .flags = DB_ACTION_COMMON | DB_ACTION_ADD_MENU,
+    .callback2 = action_skip_to_next_composer_handler,
+    .next = &action_skip_to_next_genre
+};
+
+static DB_plugin_action_t action_skip_to_next_artist = {
+    .title = "Playback/Skip to/Next artist",
+    .name = "skip_to_next_artist",
+    .flags = DB_ACTION_COMMON | DB_ACTION_ADD_MENU,
+    .callback2 = action_skip_to_next_artist_handler,
+    .next = &action_skip_to_next_composer
+};
+
+static DB_plugin_action_t action_skip_to_next_album = {
+    .title = "Playback/Skip to/Next album",
+    .name = "skip_to_next_album",
+    .flags = DB_ACTION_COMMON | DB_ACTION_ADD_MENU,
+    .callback2 = action_skip_to_next_album_handler,
+    .next = &action_skip_to_next_artist
+};
+
 static DB_plugin_action_t action_next_playlist = {
     .title = "Next Playlist",
     .name = "next_playlist",
     .flags = DB_ACTION_COMMON,
     .callback2 = action_next_playlist_handler,
-    .next = &action_jump_to_current
+    .next = &action_skip_to_next_album
 };
 
 static DB_plugin_action_t action_prev_playlist = {
@@ -1030,12 +1134,45 @@ static DB_plugin_action_t action_play_random = {
     .next = &action_play_pause
 };
 
+static DB_plugin_action_t action_seek_1s_forward = {
+    .title = "Playback/Seek 1s Forward",
+    .name = "seek_1s_fwd",
+    .flags = DB_ACTION_COMMON,
+    .callback2 = action_seek_1s_forward_cb,
+    .next = &action_play_random
+};
+
+static DB_plugin_action_t action_seek_1s_backward = {
+    .title = "Playback/Seek 1s Backward",
+    .name = "seek_1s_back",
+    .flags = DB_ACTION_COMMON,
+    .callback2 = action_seek_1s_backward_cb,
+    .next = &action_seek_1s_forward
+};
+
+static DB_plugin_action_t action_seek_5s_forward = {
+    .title = "Playback/Seek 5s Forward",
+    .name = "seek_5s_fwd",
+    .flags = DB_ACTION_COMMON,
+    .callback2 = action_seek_5s_forward_cb,
+    .next = &action_seek_1s_backward
+};
+
+static DB_plugin_action_t action_seek_5s_backward = {
+    .title = "Playback/Seek 5s Backward",
+    .name = "seek_5s_back",
+    .flags = DB_ACTION_COMMON,
+    .callback2 = action_seek_5s_backward_cb,
+    .next = &action_seek_5s_forward
+};
+
+
 static DB_plugin_action_t action_seek_1p_forward = {
     .title = "Playback/Seek 1% Forward",
     .name = "seek_1p_fwd",
     .flags = DB_ACTION_COMMON,
     .callback2 = action_seek_1p_forward_cb,
-    .next = &action_play_random
+    .next = &action_seek_5s_backward
 };
 
 static DB_plugin_action_t action_seek_1p_backward = {

@@ -1,20 +1,26 @@
 /*
-    DeaDBeeF - The Ultimate Music Player
-    Copyright (C) 2009-2013 Alexey Yakovenko <waker@users.sourceforge.net>
+    DeaDBeeF -- the music player
+    Copyright (C) 2009-2015 Alexey Yakovenko and other contributors
 
-    This program is free software: you can redistribute it and/or modify
-    it under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 2 of the License, or
-    (at your option) any later version.
+    This software is provided 'as-is', without any express or implied
+    warranty.  In no event will the authors be held liable for any damages
+    arising from the use of this software.
 
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
+    Permission is granted to anyone to use this software for any purpose,
+    including commercial applications, and to alter it and redistribute it
+    freely, subject to the following restrictions:
 
-    You should have received a copy of the GNU General Public License
-    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+    1. The origin of this software must not be misrepresented; you must not
+     claim that you wrote the original software. If you use this software
+     in a product, an acknowledgment in the product documentation would be
+     appreciated but is not required.
+
+    2. Altered source versions must be plainly marked as such, and must not be
+     misrepresented as being the original software.
+
+    3. This notice may not be removed or altered from any source distribution.
 */
+
 #ifndef __DDBLISTVIEW_H
 #define __DDBLISTVIEW_H
 
@@ -22,8 +28,10 @@
 #include <sys/time.h>
 #include <stdint.h>
 #include "drawing.h"
+#include "../../deadbeef.h"
 
 // drag and drop targets
+#define TARGET_PLAYITEMS "DDB_PLAYITEM_LIST"
 enum {
     TARGET_URILIST,
     TARGET_SAMEWIDGET,
@@ -39,8 +47,9 @@ G_BEGIN_DECLS
 #define DDB_LISTVIEW_GET_CLASS(obj) (G_TYPE_INSTANCE_GET_CLASS ((obj), DDB_TYPE_LISTVIEW, DdbListviewClass))
 
 typedef struct {
-    int id;
+    int id; // predefined col type
     char *format;
+    char *bytecode;
 } col_info_t;
 
 typedef struct _DdbListview DdbListview;
@@ -83,22 +92,23 @@ typedef struct {
     void (*select) (DdbListviewIter, int sel);
     int (*is_selected) (DdbListviewIter);
 
-    int (*get_group) (DdbListviewIter it, char *str, int size);
+    int (*get_group) (DdbListview *listview, DdbListviewIter it, char *str, int size);
 
     // drag-n-drop
     void (*drag_n_drop) (DdbListviewIter before, DdbPlaylistHandle playlist_from, uint32_t *indices, int length, int copy);
     void (*external_drag_n_drop) (DdbListviewIter before, char *mem, int length);
 
     // callbacks
-    void (*draw_group_title) (DdbListview *listview, cairo_t *drawable, DdbListviewIter iter, int x, int y, int width, int height);
-    void (*draw_column_data) (DdbListview *listview, cairo_t *drawable, DdbListviewIter iter, DdbListviewIter group_iter, int column, int group_y, int group_height, int group_pinned, int grp_next_y, int x, int y, int width, int height);
+    void (*draw_group_title) (DdbListview *listview, cairo_t *drawable, DdbListviewIter iter, int pl_iter, int x, int y, int width, int height);
+    void (*draw_album_art) (DdbListview *listview, cairo_t *drawable, DdbListviewIter group_iter, int column, int group_pinned, int grp_next_y, int x, int y, int width, int height);
+    void (*draw_column_data) (DdbListview *listview, cairo_t *drawable, DdbListviewIter iter, int idx, int column, int pl_iter, int x, int y, int width, int height);
     void (*list_context_menu) (DdbListview *listview, DdbListviewIter iter, int idx);
     void (*header_context_menu) (DdbListview *listview, int col);
     void (*handle_doubleclick) (DdbListview *listview, DdbListviewIter iter, int idx);
     void (*selection_changed) (DdbListview *listview, DdbListviewIter it, int idx);
     void (*delete_selected) (void);
+    void (*groups_changed) (DdbListview *listview, const char *format);
     void (*columns_changed) (DdbListview *listview);
-    void (*column_size_changed) (DdbListview *listview, int col);
     void (*col_sort) (int col, int sort_order, void *user_data);
     void (*col_free_user_data) (void *user_data);
     void (*vscroll_changed) (int pos);
@@ -147,7 +157,7 @@ struct _DdbListview {
     // selection
     int areaselect; // boolean, whether area selection is active (1), or not (0)
     int areaselect_y; // pixel-coordinate of anchor click relative to playlist origin
-    int dragwait;
+    int dragwait; // set to 1 when mouse was pressed down on already selected track, but not moved since (so we're waiting for dnd to begin)
     int drag_source_playlist;
     int shift_sel_anchor;
 
@@ -164,6 +174,7 @@ struct _DdbListview {
     struct _DdbListviewColumn *columns;
     gboolean lock_columns;
 
+    ddb_playlist_t *plt; // current playlist (refcounted), must be unreffed with the group
     struct _DdbListviewGroup *groups;
     int groups_build_idx; // must be the same as playlist modification idx
     int fullheight;
@@ -180,12 +191,22 @@ struct _DdbListview {
 
     // drawing contexts
     drawctx_t listctx;
+    drawctx_t grpctx;
     drawctx_t hdrctx;
 
     // cover art size
     int cover_size;
     int new_cover_size;
     guint cover_refresh_timeout_id;
+
+    // group format string that's supposed to get parsed by tf
+    char *group_format;
+    // tf bytecode for group title
+    char *group_title_bytecode;
+
+    guint tf_redraw_timeout_id;
+    int tf_redraw_track_idx;
+    DdbListviewIter tf_redraw_track;
 };
 
 struct _DdbListviewClass {
@@ -221,18 +242,19 @@ ddb_listview_is_scrolling (DdbListview *listview);
 int
 ddb_listview_column_get_count (DdbListview *listview);
 void
-ddb_listview_column_append (DdbListview *listview, const char *title, int width, int align_right, int minheight, void *user_data);
+ddb_listview_column_append (DdbListview *listview, const char *title, int width, int align_right, int minheight, int color_override, GdkColor color, void *user_data);
 void
-ddb_listview_column_insert (DdbListview *listview, int before, const char *title, int width, int align_right, int minheight, void *user_data);
+ddb_listview_column_insert (DdbListview *listview, int before, const char *title, int width, int align_right, int minheight, int color_override, GdkColor color, void *user_data);
 void
 ddb_listview_column_remove (DdbListview *listview, int idx);
 int
-ddb_listview_column_get_info (DdbListview *listview, int col, const char **title, int *width, int *align_right, int *minheight, void **user_data);
+ddb_listview_column_get_info (DdbListview *listview, int col, const char **title, int *width, int *align_right, int *minheight, int *color_override, GdkColor *color, void **user_data);
 int
-ddb_listview_column_set_info (DdbListview *listview, int col, const char *title, int width, int align_right, int minheight, void *user_data);
-
+ddb_listview_column_set_info (DdbListview *listview, int col, const char *title, int width, int align_right, int minheight, int color_override, GdkColor color, void *user_data);
 void
 ddb_listview_show_header (DdbListview *listview, int show);
+void
+ddb_listview_init_autoresize (DdbListview *ps, int totalwidth);
 
 enum {
     DDB_REFRESH_COLUMNS = 1,
@@ -300,6 +322,18 @@ ddb_listview_groupcheck (DdbListview *listview);
 
 int
 ddb_listview_is_album_art_column (DdbListview *listview, int x);
+
+int
+ddb_listview_is_album_art_column_idx (DdbListview *listview, int cidx);
+
+void
+ddb_listview_update_fonts (DdbListview *ps);
+
+void
+ddb_listview_header_update_fonts (DdbListview *ps);
+
+void
+ddb_listview_cancel_autoredraw (DdbListview *listview);
 
 G_END_DECLS
 

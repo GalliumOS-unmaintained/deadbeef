@@ -152,6 +152,9 @@ void alac_set_info(alac_file *alac, char *inputbuffer)
       _Swap32(alac->setinfo_8a_rate);
 
   ptr += 4;
+    
+  alac->samplesize = alac->setinfo_sample_size;
+  alac->bytespersample = (alac->setinfo_sample_size / 8) * alac->numchannels;
 
   allocate_buffers(alac);
 
@@ -160,6 +163,11 @@ void alac_set_info(alac_file *alac, char *inputbuffer)
 int
 alac_get_samplerate(alac_file *alac) {
     return alac->setinfo_8a_rate;
+}
+
+int
+alac_get_bitspersample(alac_file *alac) {
+    return alac->setinfo_sample_size;
 }
 
 /* stream reading */
@@ -759,7 +767,7 @@ void decode_frame(alac_file *alac,
     channels = readbits(alac, 3);
 
     *outputsize = outputsamples * alac->bytespersample;
-
+    
     switch(channels)
     {
     case 0: /* 1 channel */
@@ -849,7 +857,9 @@ void decode_frame(alac_file *alac,
             }
             else
             {
-                fprintf(stderr, "FIXME: unhandled predicition type: %i\n", prediction_type);
+                fprintf(stderr, "ALAC: unhandled predicition type: %i, the data seems to be corrupt\n", prediction_type);
+                *outputsize = 0;
+                return;
                 /* i think the only other prediction type (or perhaps this is just a
                  * boolean?) runs adaptive fir twice.. like:
                  * predictor_decompress_fir_adapt(predictor_error, tempout, ...)
@@ -1049,7 +1059,9 @@ void decode_frame(alac_file *alac,
             }
             else
             { /* see mono case */
-                fprintf(stderr, "FIXME: unhandled predicition type: %i\n", prediction_type_a);
+                fprintf(stderr, "ALAC: unhandled predicition type: %i, the data seems to be corrupt\n", prediction_type_a);
+                *outputsize = 0;
+                return;
             }
 
             /* channel 2 */
@@ -1074,7 +1086,9 @@ void decode_frame(alac_file *alac,
             }
             else
             {
-                fprintf(stderr, "FIXME: unhandled predicition type: %i\n", prediction_type_b);
+                fprintf(stderr, "ALAC: unhandled predicition type: %i, the data seems to be corrupt\n", prediction_type_b);
+                *outputsize = 0;
+                return;
             }
         }
         else

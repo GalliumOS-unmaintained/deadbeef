@@ -1,34 +1,36 @@
 /*
-    DeaDBeeF - The Ultimate Music Player
-    Copyright (C) 2009-2013 Alexey Yakovenko <waker@users.sourceforge.net>
+    Converter UI for DeaDBeeF Player
+    Copyright (C) 2009-2015 Alexey Yakovenko and other contributors
 
-    This program is free software; you can redistribute it and/or
-    modify it under the terms of the GNU General Public License
-    as published by the Free Software Foundation; either version 2
-    of the License, or (at your option) any later version.
-    
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
-    
-    You should have received a copy of the GNU General Public License
-    along with this program; if not, write to the Free Software
-    Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+    This software is provided 'as-is', without any express or implied
+    warranty.  In no event will the authors be held liable for any damages
+    arising from the use of this software.
+
+    Permission is granted to anyone to use this software for any purpose,
+    including commercial applications, and to alter it and redistribute it
+    freely, subject to the following restrictions:
+
+    1. The origin of this software must not be misrepresented; you must not
+     claim that you wrote the original software. If you use this software
+     in a product, an acknowledgment in the product documentation would be
+     appreciated but is not required.
+
+    2. Altered source versions must be plainly marked as such, and must not be
+     misrepresented as being the original software.
+
+    3. This notice may not be removed or altered from any source distribution.
 */
+
 #ifdef HAVE_CONFIG_H
 #  include "../../config.h"
 #endif
 #if HAVE_SYS_CDEFS_H
 #include <sys/cdefs.h>
 #endif
-#if HAVE_SYS_SYSLIMITS_H
-#include <sys/syslimits.h>
-#endif
+#include <limits.h>
 #include <string.h>
 #include <stdlib.h>
 #include <assert.h>
-#include <sys/stat.h>
 #include <dirent.h>
 #include <unistd.h>
 #include "converter.h"
@@ -49,6 +51,8 @@ typedef struct {
     ddb_dsp_preset_t *current_dsp_preset;
 
     DB_playItem_t **convert_items;
+    ddb_playlist_t *convert_playlist;
+
     int convert_items_count;
     char *outfolder;
     char *outfile;
@@ -62,7 +66,6 @@ typedef struct {
     GtkWidget *progress;
     GtkWidget *progress_entry;
     int cancelled;
-    char *progress_text;
 } converter_ctx_t;
 
 converter_ctx_t *current_ctx;
@@ -117,7 +120,7 @@ destroy_progress_cb (gpointer ctx) {
 }
 
 struct overwrite_prompt_ctx {
-    char *fname;
+    const char *fname;
     uintptr_t mutex;
     uintptr_t cond;
     int result;
@@ -137,6 +140,20 @@ overwrite_prompt_cb (void *ctx) {
     ctl->result = response == GTK_RESPONSE_YES ? 1 : 0;
     deadbeef->cond_signal (ctl->cond);
     return FALSE;
+}
+
+static int
+overwrite_prompt (const char *outpath) {
+    struct overwrite_prompt_ctx ctl;
+    ctl.mutex = deadbeef->mutex_create ();
+    ctl.cond = deadbeef->cond_create ();
+    ctl.fname = outpath;
+    ctl.result = 0;
+    gdk_threads_add_idle (overwrite_prompt_cb, &ctl);
+    deadbeef->cond_wait (ctl.cond, ctl.mutex);
+    deadbeef->cond_free (ctl.cond);
+    deadbeef->mutex_free (ctl.mutex);
+    return ctl.result;
 }
 
 static void
@@ -178,7 +195,6 @@ converter_worker (void *ctx) {
             }
             deadbeef->pl_unlock ();
         }
-        fprintf (stderr, "common root path: %s\n", root);
     }
 
     for (int n = 0; n < conv->convert_items_count; n++) {
@@ -191,50 +207,24 @@ converter_worker (void *ctx) {
         g_idle_add (update_progress_cb, info);
 
         char outpath[2000];
-
-        converter_plugin->get_output_path (conv->convert_items[n], conv->outfolder, conv->outfile, conv->encoder_preset, conv->preserve_folder_structure, root, conv->write_to_source_folder, outpath, sizeof (outpath));
+        converter_plugin->get_output_path2 (conv->convert_items[n], conv->convert_playlist, conv->outfolder, conv->outfile, conv->encoder_preset, conv->preserve_folder_structure, root, conv->write_to_source_folder, outpath, sizeof (outpath));
 
         int skip = 0;
-
-        // need to unescape path before passing to stat
-        char unesc_path[2000];
-        char invalid[] = "$\"`\\";
-        const char *p = outpath;
-        char *o = unesc_path;
-        while (*p) {
-            if (*p == '\\') {
-                p++;
+        char *real_out = realpath(outpath, NULL);
+        if (real_out) {
+            skip = 1;
+            deadbeef->pl_lock();
+            char *real_in = realpath(deadbeef->pl_find_meta(conv->convert_items[n], ":URI"), NULL);
+            deadbeef->pl_unlock();
+            const int paths_match = real_in && !strcmp(real_in, real_out);
+            free(real_in);
+            free(real_out);
+            if (paths_match) {
+                fprintf (stderr, "converter: destination file is the same as source file, skipping\n");
             }
-            *o++ = *p++;
-        }
-        *o = 0;
-
-        struct stat st;
-        int res = stat(unesc_path, &st);
-        if (res == 0) {
-            if (conv->overwrite_action > 1 || conv->overwrite_action < 0) {
-                conv->overwrite_action = 0;
-            }
-            if (conv->overwrite_action == 0) {
-                // prompt if file exists
-                struct overwrite_prompt_ctx ctl;
-                ctl.mutex = deadbeef->mutex_create ();
-                ctl.cond = deadbeef->cond_create ();
-                ctl.fname = unesc_path;
-                ctl.result = 0;
-                gdk_threads_add_idle (overwrite_prompt_cb, &ctl);
-                deadbeef->cond_wait (ctl.cond, ctl.mutex);
-                deadbeef->cond_free (ctl.cond);
-                deadbeef->mutex_free (ctl.mutex);
-                if (ctl.result) {
-                    unlink (outpath);
-                }
-                else {
-                    skip = 1;
-                }
-            }
-            else if (conv->overwrite_action == 1) {
+            else if (conv->overwrite_action == 2 || (conv->overwrite_action == 1 && overwrite_prompt(outpath))) {
                 unlink (outpath);
+                skip = 0;
             }
         }
 
@@ -253,7 +243,15 @@ converter_worker (void *ctx) {
     if (conv->convert_items) {
         free (conv->convert_items);
     }
-    free (conv->outfolder);
+    if (conv->convert_playlist) {
+        deadbeef->plt_unref (conv->convert_playlist);
+    }
+    if (conv->outfolder) {
+        free (conv->outfolder);
+    }
+    if (conv->outfile) {
+        free (conv->outfile);
+    }
     converter_plugin->encoder_preset_free (conv->encoder_preset);
     converter_plugin->dsp_preset_free (conv->dsp_preset);
     free (conv);
@@ -266,7 +264,7 @@ converter_process (converter_ctx_t *conv)
     conv->outfolder = strdup (gtk_entry_get_text (GTK_ENTRY (lookup_widget (conv->converter, "output_folder"))));
     const char *outfile = gtk_entry_get_text (GTK_ENTRY (lookup_widget (conv->converter, "output_file")));
     if (outfile[0] == 0) {
-        outfile = "%a - %t";
+        outfile = "%artist% - %title%";
     }
     conv->outfile = strdup (outfile);
     conv->preserve_folder_structure = gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (lookup_widget (conv->converter, "preserve_folders")));
@@ -361,6 +359,7 @@ converter_show_cb (void *data) {
             // copy list
             ddb_playlist_t *plt = deadbeef->plt_get_curr ();
             if (plt) {
+                conv->convert_playlist = plt;
                 conv->convert_items_count = deadbeef->plt_getselcount (plt);
                 if (0 < conv->convert_items_count) {
                     conv->convert_items = malloc (sizeof (DB_playItem_t *) * conv->convert_items_count);
@@ -385,8 +384,9 @@ converter_show_cb (void *data) {
     case DDB_ACTION_CTX_PLAYLIST:
         {
             // copy list
-            ddb_playlist_t *plt = deadbeef->plt_get_curr ();
+            ddb_playlist_t *plt = deadbeef->action_get_playlist ();
             if (plt) {
+                conv->convert_playlist = plt;
                 conv->convert_items_count = deadbeef->plt_get_item_count (plt, PL_MAIN);
                 if (0 < conv->convert_items_count) {
                     conv->convert_items = malloc (sizeof (DB_playItem_t *) * conv->convert_items_count);
@@ -399,7 +399,6 @@ converter_show_cb (void *data) {
                         }
                     }
                 }
-                deadbeef->plt_unref (plt);
             }
             break;
         }
@@ -407,10 +406,11 @@ converter_show_cb (void *data) {
         {
             DB_playItem_t *it = deadbeef->streamer_get_playing_track ();
             if (it) {
+                conv->convert_playlist = deadbeef->pl_get_playlist (it);
                 conv->convert_items_count = 1;
                 conv->convert_items = malloc (sizeof (DB_playItem_t *) * conv->convert_items_count);
                 if (conv->convert_items) {
-                    conv->convert_items[1] = it;
+                    conv->convert_items[0] = it;
                 }
             }
         }
@@ -425,7 +425,7 @@ converter_show_cb (void *data) {
         out_folder = getenv("HOME");
     }
     gtk_entry_set_text (GTK_ENTRY (lookup_widget (conv->converter, "output_folder")), out_folder);
-    gtk_entry_set_text (GTK_ENTRY (lookup_widget (conv->converter, "output_file")), deadbeef->conf_get_str_fast ("converter.output_file", ""));
+    gtk_entry_set_text (GTK_ENTRY (lookup_widget (conv->converter, "output_file")), deadbeef->conf_get_str_fast ("converter.output_file_tf", ""));
     gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (lookup_widget (conv->converter, "preserve_folders")), deadbeef->conf_get_int ("converter.preserve_folder_structure", 0));
     int write_to_source_folder = deadbeef->conf_get_int ("converter.write_to_source_folder", 0);
     gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (lookup_widget (conv->converter, "write_to_source_folder")), write_to_source_folder);
@@ -645,7 +645,7 @@ void
 on_output_file_changed                 (GtkEntry        *entry,
                                         gpointer         user_data)
 {
-    deadbeef->conf_set_str ("converter.output_file", gtk_entry_get_text (entry));
+    deadbeef->conf_set_str ("converter.output_file_tf", gtk_entry_get_text (entry));
     deadbeef->conf_save ();
 }
 
@@ -906,12 +906,16 @@ on_encoder_preset_remove                     (GtkButton       *button,
     }
 }
 
+static GtkWidget *encpreset_dialog;
+
 static void
 on_encoder_preset_cursor_changed (GtkTreeView     *treeview,
                                         gpointer         user_data) {
-    GtkWidget *toplevel = gtk_widget_get_toplevel (GTK_WIDGET (treeview));
-    GtkWidget *edit = lookup_widget (toplevel, "edit");
-    GtkWidget *remove = lookup_widget (toplevel, "remove");
+    if (!encpreset_dialog) {
+        return;
+    }
+    GtkWidget *edit = lookup_widget (encpreset_dialog, "edit");
+    GtkWidget *remove = lookup_widget (encpreset_dialog, "remove");
 
     GtkTreePath *path;
     GtkTreeViewColumn *col;
@@ -971,6 +975,7 @@ on_edit_encoder_presets_clicked        (GtkButton       *button,
                                         gpointer         user_data)
 {
     GtkWidget *dlg = create_preset_list ();
+    encpreset_dialog = dlg;
     gtk_window_set_title (GTK_WINDOW (dlg), _("Encoders"));
     gtk_window_set_transient_for (GTK_WINDOW (dlg), GTK_WINDOW (current_ctx->converter));
     g_signal_connect ((gpointer)lookup_widget (dlg, "add"), "clicked", G_CALLBACK (on_encoder_preset_add), NULL);
@@ -997,6 +1002,7 @@ on_edit_encoder_presets_clicked        (GtkButton       *button,
     on_encoder_preset_cursor_changed (GTK_TREE_VIEW (list), NULL);
     gtk_dialog_run (GTK_DIALOG (dlg));
     gtk_widget_destroy (dlg);
+    encpreset_dialog = NULL;
 }
 
 ///// dsp preset gui
@@ -1564,7 +1570,7 @@ GtkWidget*
 title_formatting_help_link_create (gchar *widget_name, gchar *string1, gchar *string2,
                 gint int1, gint int2)
 {
-    GtkWidget *link = gtk_link_button_new_with_label ("http://github.com/Alexey-Yakovenko/deadbeef/wiki/Title-formatting", _("Help"));
+    GtkWidget *link = gtk_link_button_new_with_label ("http://github.com/Alexey-Yakovenko/deadbeef/wiki/Title-formatting-2.0", _("Help"));
     return link;
 }
 
@@ -1590,7 +1596,7 @@ convgui_get_actions (DB_playItem_t *it)
     return &convert_action;
 }
 
-int
+static int
 convgui_connect (void) {
     gtkui_plugin = (ddb_gtkui_t *)deadbeef->plug_get_for_id (DDB_GTKUI_PLUGIN_ID);
     converter_plugin = (ddb_converter_t *)deadbeef->plug_get_for_id ("converter");
@@ -1602,10 +1608,30 @@ convgui_connect (void) {
         fprintf (stderr, "convgui: converter plugin not found\n");
         return -1;
     }
-    if (!PLUG_TEST_COMPAT(&converter_plugin->misc.plugin, 1, 3)) {
-        fprintf (stderr, "convgui: need converter>=1.3, but found %d.%d\n", converter_plugin->misc.plugin.version_major, converter_plugin->misc.plugin.version_minor);
+#define REQ_CONV_VERSION 4
+    if (!PLUG_TEST_COMPAT(&converter_plugin->misc.plugin, 1, REQ_CONV_VERSION)) {
+        fprintf (stderr, "convgui: need converter>=1.%d, but found %d.%d\n", REQ_CONV_VERSION, converter_plugin->misc.plugin.version_major, converter_plugin->misc.plugin.version_minor);
         return -1;
     }
+    return 0;
+}
+
+static void
+import_legacy_tf (const char *key_from, const char *key_to) {
+    deadbeef->conf_lock ();
+    if (!deadbeef->conf_get_str_fast (key_to, NULL)
+            && deadbeef->conf_get_str_fast (key_from, NULL)) {
+        char old[200], new[200];
+        deadbeef->conf_get_str (key_from, "", old, sizeof (old));
+        deadbeef->tf_import_legacy (old, new, sizeof (new));
+        deadbeef->conf_set_str (key_to, new);
+    }
+    deadbeef->conf_unlock ();
+}
+
+static int
+convgui_start (void) {
+    import_legacy_tf ("converter.output_file", "converter.output_file_tf");
     return 0;
 }
 
@@ -1626,25 +1652,31 @@ DB_misc_t plugin = {
         "· right click\n"
         "· select «Convert»\n",
     .plugin.copyright = 
-        "Copyright (C) 2009-2013 Alexey Yakovenko <waker@users.sourceforge.net>\n"
+        "Converter UI for DeaDBeeF Player\n"
+        "Copyright (C) 2009-2015 Alexey Yakovenko and other contributors\n"
         "\n"
-        "This program is free software; you can redistribute it and/or\n"
-        "modify it under the terms of the GNU General Public License\n"
-        "as published by the Free Software Foundation; either version 2\n"
-        "of the License, or (at your option) any later version.\n"
+        "This software is provided 'as-is', without any express or implied\n"
+        "warranty.  In no event will the authors be held liable for any damages\n"
+        "arising from the use of this software.\n"
         "\n"
-        "This program is distributed in the hope that it will be useful,\n"
-        "but WITHOUT ANY WARRANTY; without even the implied warranty of\n"
-        "MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the\n"
-        "GNU General Public License for more details.\n"
+        "Permission is granted to anyone to use this software for any purpose,\n"
+        "including commercial applications, and to alter it and redistribute it\n"
+        "freely, subject to the following restrictions:\n"
         "\n"
-        "You should have received a copy of the GNU General Public License\n"
-        "along with this program; if not, write to the Free Software\n"
-        "Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.\n"
+        "1. The origin of this software must not be misrepresented; you must not\n"
+        " claim that you wrote the original software. If you use this software\n"
+        " in a product, an acknowledgment in the product documentation would be\n"
+        " appreciated but is not required.\n"
+        "\n"
+        "2. Altered source versions must be plainly marked as such, and must not be\n"
+        " misrepresented as being the original software.\n"
+        "\n"
+        "3. This notice may not be removed or altered from any source distribution.\n"
     ,
     .plugin.website = "http://deadbeef.sf.net",
     .plugin.get_actions = convgui_get_actions,
     .plugin.connect = convgui_connect,
+    .plugin.start = convgui_start,
 };
 
 DB_plugin_t *

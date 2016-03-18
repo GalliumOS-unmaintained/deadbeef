@@ -169,15 +169,32 @@ const char _sidtune_CHRtab[256] =  // CHR$ conversion table (0x01 = no output)
 #define getFlagZ()    (Register_z_Flag == 0)
 #define getFlagC()    (Register_c_Flag != 0)
 
+#if 0
 // c++ exception version
-//#define stealCycle() \
-//    interrupts.delay++; \
-//    throw((int_least8_t) -1);
+#define stealCycle() \
+    interrupts.delay++; \
+    throw((int_least8_t) -1);
+#define ReturnIfCycleStolen()
+#endif
 
+#if 0
 // longjmp version
 #define stealCycle() \
     interrupts.delay++; \
     longjmp (jmp_env, -1);
+#define ReturnIfCycleStolen()
+#endif
+
+#if 1
+// global variable version
+#define stealCycle() \
+    interrupts.delay++; \
+    m_stealCycleDelta = -1; \
+    return;
+
+#define ReturnIfCycleStolen()\
+	{ if (m_stealCycleDelta != 0) return; }
+#endif
 
 // Handle bus access signals
 void MOS6510::aecSignal (bool state)
@@ -435,6 +452,7 @@ void MOS6510::NMI1Request (void)
 void MOS6510::IRQRequest (void)
 {
     PushSR   (false);
+	ReturnIfCycleStolen();
     setFlagI (true);
     interrupts.irqRequest = false;
 }
@@ -581,6 +599,7 @@ void MOS6510::FetchHighAddrX (void)
     uint8_t page;
     // Rev 1.05 (saw) - Call base Function
     FetchHighAddr ();
+	ReturnIfCycleStolen ();
     page = endian_16hi8 (Cycle_EffectiveAddress);
     Cycle_EffectiveAddress += Register_X;
 
@@ -595,6 +614,7 @@ void MOS6510::FetchHighAddrX (void)
 void MOS6510::FetchHighAddrX2 (void)
 {
     FetchHighAddr ();
+	ReturnIfCycleStolen();
     Cycle_EffectiveAddress += Register_X;
 }
 
@@ -1640,7 +1660,9 @@ void MOS6510::tas_instr (void)
 //MOS6510::MOS6510 (model_t _model, const char *id)
 MOS6510::MOS6510 (EventContext *context)
 :eventContext(*context),
- Event("CPU")
+ Event("CPU"),
+ m_stealCycleDelta (0)
+
 {
     struct ProcessorOperations *instr;
     uint8_t legalMode  = true;

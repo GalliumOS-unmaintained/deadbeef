@@ -53,7 +53,6 @@
 #endif
 
 #if LIBAVFORMAT_VERSION_INT >= AV_VERSION_INT(54, 6, 0)
-#define AVCODEC_MAX_AUDIO_FRAME_SIZE 192000
 #define av_find_stream_info(ctx) avformat_find_stream_info(ctx,NULL)
 #define avcodec_open(ctx,codec) avcodec_open2(ctx,codec,NULL)
 #define av_get_bits_per_sample_format(fmt) (av_get_bytes_per_sample(fmt)*8)
@@ -69,7 +68,7 @@
 static DB_decoder_t plugin;
 static DB_functions_t *deadbeef;
 
-#define DEFAULT_EXTS "aa3;oma;ac3;vqf;amr;opus;tak"
+#define DEFAULT_EXTS "aa3;oma;ac3;vqf;amr;opus;tak;dsf;dff"
 
 #define EXT_MAX 100
 
@@ -105,8 +104,9 @@ typedef struct {
     int left_in_packet;
     int have_packet;
 
-    char *buffer; // must be AVCODEC_MAX_AUDIO_FRAME_SIZE
+    char *buffer;
     int left_in_buffer;
+    int buffer_size;
 
     int startsample;
     int endsample;
@@ -121,6 +121,25 @@ ffmpeg_open (uint32_t hints) {
     DB_fileinfo_t *_info = malloc (sizeof (ffmpeg_info_t));
     memset (_info, 0, sizeof (ffmpeg_info_t));
     return _info;
+}
+
+// ensure that the buffer can contain entire frame of frame_size bytes per channel
+static int
+ensure_buffer (ffmpeg_info_t *info, int frame_size) {
+    if (!info->buffer || info->buffer_size < frame_size * info->ctx->channels) {
+        if (info->buffer) {
+            free (info->buffer);
+            info->buffer = NULL;
+        }
+        info->buffer_size = frame_size*info->ctx->channels;
+        info->left_in_buffer = 0;
+        int err = posix_memalign ((void **)&info->buffer, 16, info->buffer_size);
+        if (err) {
+            fprintf (stderr, "ffmpeg: failed to allocate %d bytes of buffer memory\n", info->buffer_size);
+            return -1;
+        }
+    }
+    return 0;
 }
 
 static int
@@ -223,13 +242,9 @@ ffmpeg_init (DB_fileinfo_t *_info, DB_playItem_t *it) {
     memset (&info->pkt, 0, sizeof (info->pkt));
     info->have_packet = 0;
 
-    int err = posix_memalign ((void **)&info->buffer, 16, AVCODEC_MAX_AUDIO_FRAME_SIZE);
-    if (err) {
-        fprintf (stderr, "ffmpeg: failed to allocate buffer memory\n");
-        return -1;
-    }
-
-#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(53, 40, 0)
+#if LIBAVCODEC_VERSION_INT > AV_VERSION_INT(55, 28, 0)
+    info->frame = av_frame_alloc();
+#elif LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(53, 40, 0)
     info->frame = avcodec_alloc_frame();
 #endif
 
@@ -273,7 +288,11 @@ ffmpeg_free (DB_fileinfo_t *_info) {
     trace ("ffmpeg: free\n");
     ffmpeg_info_t *info = (ffmpeg_info_t*)_info;
     if (info) {
-#if LIBAVCODEC_VERSION_INT > AV_VERSION_INT(54, 59, 100)
+#if LIBAVCODEC_VERSION_INT > AV_VERSION_INT(55, 28, 0)
+        if (info->frame) {
+            av_frame_free(&info->frame);
+        }
+#elif LIBAVCODEC_VERSION_INT > AV_VERSION_INT(54, 59, 100)
         if (info->frame) {
             avcodec_free_frame(&info->frame);
         }
@@ -341,7 +360,7 @@ ffmpeg_read (DB_fileinfo_t *_info, char *bytes, int size) {
         }
 
         while (info->left_in_packet > 0 && size > 0) {
-            int out_size = AVCODEC_MAX_AUDIO_FRAME_SIZE;
+            int out_size = info->buffer_size;
             int len;
             //trace ("in: out_size=%d(%d), size=%d\n", out_size, AVCODEC_MAX_AUDIO_FRAME_SIZE, size);
 
@@ -349,6 +368,9 @@ ffmpeg_read (DB_fileinfo_t *_info, char *bytes, int size) {
             int got_frame = 0;
             len = avcodec_decode_audio4(info->ctx, info->frame, &got_frame, &info->pkt);
             if (len > 0) {
+                if (ensure_buffer (info, info->frame->nb_samples * (_info->fmt.bps >> 3))) {
+                    return -1;
+                }
                 if (av_sample_fmt_is_planar(info->ctx->sample_fmt)) {
                     out_size = 0;
                     for (int c = 0; c < info->ctx->channels; c++) {
@@ -501,6 +523,7 @@ static const char *map[] = {
     "title", "title",
     "album", "album",
     "track", "track",
+    "tracktotal", "numtracks",
     "date", "year",
     "WM/Year", "year",
     "genre", "genre",
@@ -511,11 +534,41 @@ static const char *map[] = {
     "encoder", "encoder",
     "encoded_by", "vendor",
     "disc", "disc",
+    "disctotal", "numdiscs",
     "copyright", "copyright",
-    "tracktotal", "numtracks",
     "publisher", "publisher",
+    "originaldate","original_release_time",
+    "originalyear","original_release_year",
+    "WM/OriginalReleaseTime","original_release_time",
+    "WM/OriginalReleaseYear","original_release_year",
     NULL
 };
+
+static int
+ff_add_disc_meta (DB_playItem_t *it, const char *disc) {
+    char *slash = strchr (disc, '/');
+    if (slash) {
+        // split into disc/number
+        *slash = 0;
+        slash++;
+        deadbeef->pl_add_meta (it, "numdiscs", slash);
+    }
+    deadbeef->pl_add_meta (it, "disc", disc);
+    return 0;
+}
+
+static int
+ff_add_track_meta (DB_playItem_t *it, const char *track) {
+    char *slash = strchr (track, '/');
+    if (slash) {
+        // split into track/number
+        *slash = 0;
+        slash++;
+        deadbeef->pl_add_meta (it, "numtracks", slash);
+    }
+    deadbeef->pl_add_meta (it, "track", track);
+    return 0;
+}
 
 static int
 ffmpeg_read_metadata_internal (DB_playItem_t *it, AVFormatContext *fctx) {
@@ -547,8 +600,17 @@ ffmpeg_read_metadata_internal (DB_playItem_t *it, AVFormatContext *fctx) {
         do {
             tag = av_metadata_get (md, map[m], tag, AV_METADATA_DONT_STRDUP_KEY | AV_METADATA_DONT_STRDUP_VAL);
             if (tag) {
-                deadbeef->pl_append_meta (it, map[m+1], tag->value);
+                if (!strcmp (map[m+1], "disc")) {
+                    ff_add_disc_meta (it, tag->value);
+                }
+                else if (!strcmp (map[m+1], "track")) {
+                    ff_add_track_meta (it, tag->value);
+                }
+                else {
+                    deadbeef->pl_append_meta (it, map[m+1], tag->value);
+                }
             }
+
         } while (tag);
     }
 #else
@@ -580,7 +642,15 @@ ffmpeg_read_metadata_internal (DB_playItem_t *it, AVFormatContext *fctx) {
 
             for (m = 0; map[m]; m += 2) {
                 if (!strcasecmp (t->key, map[m])) {
-                    deadbeef->pl_append_meta (it, map[m+1], t->value);
+                    if (!strcmp (map[m+1], "disc")) {
+                        ff_add_disc_meta (it, t->value);
+                    }
+                    else if (!strcmp (map[m+1], "track")) {
+                        ff_add_track_meta (it, t->value);
+                    }
+                    else {
+                        deadbeef->pl_append_meta (it, map[m+1], t->value);
+                    }
                     break;
                 }
             }
@@ -593,6 +663,18 @@ ffmpeg_read_metadata_internal (DB_playItem_t *it, AVFormatContext *fctx) {
 #endif
     return 0;
 }
+
+static void
+print_error(const char *filename, int err)
+{
+    char errbuf[128];
+    const char *errbuf_ptr = errbuf;
+
+    if (av_strerror(err, errbuf, sizeof(errbuf)) < 0)
+        errbuf_ptr = strerror(AVUNERROR(err));
+    fprintf (stderr, "%s: %s\n", filename, errbuf_ptr);
+}
+
 
 static DB_playItem_t *
 ffmpeg_insert (ddb_playlist_t *plt, DB_playItem_t *after, const char *fname) {
@@ -631,7 +713,7 @@ ffmpeg_insert (ddb_playlist_t *plt, DB_playItem_t *after, const char *fname) {
 #else
     if ((ret = av_open_input_file(&fctx, uri, NULL, 0, NULL)) < 0) {
 #endif
-        trace ("fctx is %p, ret %d/%s", fctx, ret, strerror(-ret));
+        print_error (uri, ret);
         return NULL;
     }
 

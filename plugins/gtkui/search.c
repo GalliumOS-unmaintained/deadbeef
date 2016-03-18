@@ -1,20 +1,26 @@
 /*
-    DeaDBeeF - The Ultimate Music Player
-    Copyright (C) 2009-2013 Alexey Yakovenko <waker@users.sourceforge.net>
+    DeaDBeeF -- the music player
+    Copyright (C) 2009-2015 Alexey Yakovenko and other contributors
 
-    This program is free software: you can redistribute it and/or modify
-    it under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 2 of the License, or
-    (at your option) any later version.
+    This software is provided 'as-is', without any express or implied
+    warranty.  In no event will the authors be held liable for any damages
+    arising from the use of this software.
 
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
+    Permission is granted to anyone to use this software for any purpose,
+    including commercial applications, and to alter it and redistribute it
+    freely, subject to the following restrictions:
 
-    You should have received a copy of the GNU General Public License
-    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+    1. The origin of this software must not be misrepresented; you must not
+     claim that you wrote the original software. If you use this software
+     in a product, an acknowledgment in the product documentation would be
+     appreciated but is not required.
+
+    2. Altered source versions must be plainly marked as such, and must not be
+     misrepresented as being the original software.
+
+    3. This notice may not be removed or altered from any source distribution.
 */
+
 #ifdef HAVE_CONFIG_H
 #  include <config.h>
 #endif
@@ -50,6 +56,8 @@ extern DB_functions_t *deadbeef; // defined in gtkui.c
 extern GtkWidget *searchwin;
 extern GtkWidget *mainwin;
 
+static char *window_title_bytecode = NULL;
+
 static gboolean
 unlock_search_columns_cb (void *ctx) {
     ddb_listview_lock_columns (DDB_LISTVIEW (lookup_widget (searchwin, "searchlist")), 0);
@@ -73,9 +81,13 @@ void
 search_destroy (void) {
     gtk_widget_destroy (searchwin);
     searchwin = NULL;
+    if (window_title_bytecode) {
+        deadbeef->tf_free (window_title_bytecode);
+        window_title_bytecode = NULL;
+    }
 }
 
-void
+static void
 search_process (const char *text) {
     ddb_playlist_t *plt = deadbeef->plt_get_curr ();
     deadbeef->plt_search_process (plt, text);
@@ -92,7 +104,8 @@ on_searchentry_changed                 (GtkEditable     *editable,
                                         gpointer         user_data)
 {
     search_refresh ();
-    main_refresh ();
+    deadbeef->sendmessage (DB_EV_PLAYLISTCHANGED, 0, DDB_PLAYLIST_CHANGE_SELECTION, 0);
+    deadbeef->sendmessage (DB_EV_PLAYLISTCHANGED, 0, DDB_PLAYLIST_CHANGE_SEARCHRESULT, 0);
 }
 
 void
@@ -103,6 +116,16 @@ search_refresh (void) {
         search_process (text);
         GtkWidget *pl = lookup_widget (searchwin, "searchlist");
         ddb_listview_refresh (DDB_LISTVIEW (pl), DDB_REFRESH_VSCROLL | DDB_REFRESH_LIST | DDB_LIST_CHANGED);
+        deadbeef->sendmessage (DB_EV_FOCUS_SELECTION, (uintptr_t)pl, PL_MAIN, 0);
+
+        char title[1024] = "";
+        ddb_tf_context_t ctx = {
+            ._size = sizeof (ddb_tf_context_t),
+            .plt = deadbeef->plt_get_curr (),
+            .iter = PL_SEARCH
+        };
+        deadbeef->tf_eval (&ctx, window_title_bytecode, title, sizeof (title));
+        gtk_window_set_title (GTK_WINDOW (searchwin), title);
     }
 }
 
@@ -283,53 +306,52 @@ int search_get_idx (DdbListviewIter it) {
     return idx;
 }
 
-int
+static int
 search_is_selected (DdbListviewIter it) {
     return deadbeef->pl_is_selected ((DB_playItem_t *)it);
 }
 
-void
+static void
 search_select (DdbListviewIter it, int sel) {
     deadbeef->pl_set_selected ((DB_playItem_t *)it, sel);
     deadbeef->sendmessage (DB_EV_SELCHANGED, 0, deadbeef->plt_get_curr_idx (), PL_SEARCH);
 }
 
-int
-search_get_group (DdbListviewIter it, char *str, int size) {
-    return -1;
-}
-
-void
+static void
 search_col_sort (int col, int sort_order, void *user_data) {
     col_info_t *c = (col_info_t*)user_data;
     ddb_playlist_t *plt = deadbeef->plt_get_curr ();
-    deadbeef->plt_sort (plt, PL_SEARCH, c->id, c->format, sort_order-1);
+    deadbeef->plt_sort_v2 (plt, PL_SEARCH, c->id, c->format, sort_order-1);
     deadbeef->plt_unref (plt);
+}
+
+static void
+search_groups_changed (DdbListview *listview, const char *format) {
+    if (!format) {
+        return;
+    }
+    if (listview->group_format) {
+        free (listview->group_format);
+    }
+    if (listview->group_title_bytecode) {
+        free (listview->group_title_bytecode);
+    }
+    deadbeef->conf_set_str ("gtkui.search.group_by_tf", format);
+    listview->group_format = strdup (format);
+    listview->group_title_bytecode = deadbeef->tf_compile (listview->group_format);
 }
 
 static int lock_column_config = 0;
 
-void
+static void
 search_columns_changed (DdbListview *listview) {
     if (!lock_column_config) {
-        rewrite_column_config (listview, "search");
+        rewrite_column_config (listview, "gtkui.columns.search");
     }
 }
 
-void
-search_column_size_changed (DdbListview *listview, int col) {
-    const char *title;
-    int width;
-    int align_right;
-    col_info_t *inf;
-    int minheight;
-    int res = ddb_listview_column_get_info (listview, col, &title, &width, &align_right, &minheight, (void **)&inf);
-    if (res == -1) {
-        return;
-    }
-}
-
-void search_col_free_user_data (void *data) {
+static void
+search_col_free_user_data (void *data) {
     if (data) {
         col_info_t *inf = data;
         if (inf->format) {
@@ -339,30 +361,45 @@ void search_col_free_user_data (void *data) {
     }
 }
 
-void search_handle_doubleclick (DdbListview *listview, DdbListviewIter iter, int idx) {
+static void
+search_handle_doubleclick (DdbListview *listview, DdbListviewIter iter, int idx) {
     deadbeef->sendmessage (DB_EV_PLAY_NUM, 0, deadbeef->pl_get_idx_of ((DB_playItem_t *)iter), 0);
 }
 
-void search_selection_changed (DdbListview *ps, DdbListviewIter it, int idx) {
+static void
+search_selection_changed (DdbListview *ps, DdbListviewIter it, int idx) {
     deadbeef->sendmessage (DB_EV_SELCHANGED, (uintptr_t)ps, -1, -1);
+    deadbeef->sendmessage (DB_EV_FOCUS_SELECTION, (uintptr_t)ps, PL_MAIN, 0);
 }
 
-void
+static void
 search_delete_selected (void) {
     deadbeef->pl_delete_selected ();
     main_refresh ();
     search_refresh ();
 }
 
-void
+static void
 search_header_context_menu (DdbListview *ps, int column) {
-    GtkWidget *menu = create_headermenu (0);
+    GtkWidget *menu = create_headermenu (1);
     set_last_playlist_cm (ps); // playlist ptr for context menu
     set_active_column_cm (column);
     gtk_menu_popup (GTK_MENU (menu), NULL, NULL, NULL, ps, 3, gtk_get_current_event_time());
 }
 
-DdbListviewBinding search_binding = {
+static void
+search_draw_column_data (DdbListview *listview, cairo_t *cr, DdbListviewIter it, int idx, int column, int iter, int x, int y, int width, int height)
+{
+    draw_column_data (listview, cr, it, idx, column, PL_SEARCH, x, y, width, height);
+}
+
+static void
+search_draw_group_title (DdbListview *listview, cairo_t *drawable, DdbListviewIter it, int iter, int x, int y, int width, int height) 
+{
+    pl_common_draw_group_title (listview, drawable, it, PL_SEARCH, x, y, width, height);
+}
+
+static DdbListviewBinding search_binding = {
     // rows
     .count = search_get_count,
     .sel_count = search_get_sel_count,
@@ -381,18 +418,19 @@ DdbListviewBinding search_binding = {
     .is_selected = search_is_selected,
     .select = search_select,
 
-    .get_group = search_get_group,
+    .get_group = pl_common_get_group,
+    .groups_changed = search_groups_changed,
 
     .drag_n_drop = NULL,
     .external_drag_n_drop = NULL,
 
-    .draw_column_data = draw_column_data,
-    .draw_group_title = NULL,
+    .draw_column_data = search_draw_column_data,
+    .draw_album_art = draw_album_art,
+    .draw_group_title = search_draw_group_title,
 
     // columns
     .col_sort = search_col_sort,
     .columns_changed = search_columns_changed,
-    .column_size_changed = search_column_size_changed,
     .col_free_user_data = search_col_free_user_data,
 
     // callbacks
@@ -413,19 +451,24 @@ search_playlist_init (GtkWidget *widget) {
     search_binding.is_selected = (int (*) (DdbListviewIter))deadbeef->pl_is_selected;
     ddb_listview_set_binding (listview, &search_binding);
     lock_column_config = 1;
-    // create default set of columns
-    DB_conf_item_t *col = deadbeef->conf_find ("search.column.", NULL);
-    if (!col) {
-        add_column_helper (listview, _("Artist / Album"), 150, -1, "%a - %b", 0);
-        add_column_helper (listview, _("Track No"), 50, -1, "%n", 1);
-        add_column_helper (listview, _("Title"), 150, -1, "%t", 0);
-        add_column_helper (listview, _("Duration"), 50, -1, "%l", 0);
+
+    deadbeef->conf_lock ();
+    if (!deadbeef->conf_get_str_fast ("gtkui.columns.search", NULL)) {
+        import_column_config_0_6 ("search.column.", "gtkui.columns.search");
     }
-    else {
-        while (col) {
-            append_column_from_textdef (listview, col->value);
-            col = deadbeef->conf_find ("search.column.", col);
-        }
+    deadbeef->conf_unlock ();
+    // create default set of columns
+    if (load_column_config (listview, "gtkui.columns.search") < 0) {
+        add_column_helper (listview, _("Artist / Album"), 150, -1, "%artist% - %album%", 0);
+        add_column_helper (listview, _("Track No"), 50, -1, "%tracknumber%", 1);
+        add_column_helper (listview, _("Title"), 150, -1, "%title%", 0);
+        add_column_helper (listview, _("Duration"), 50, -1, "%length%", 0);
     }
     lock_column_config = 0;
+
+    deadbeef->conf_lock ();
+    listview->group_format = strdup (deadbeef->conf_get_str_fast ("gtkui.search.group_by_tf", ""));
+    deadbeef->conf_unlock ();
+    listview->group_title_bytecode = deadbeef->tf_compile (listview->group_format);
+    window_title_bytecode = deadbeef->tf_compile (_("Search [(%list_total% results)]"));
 }

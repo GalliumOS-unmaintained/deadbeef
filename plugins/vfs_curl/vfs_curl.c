@@ -25,6 +25,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <errno.h>
 #include <assert.h>
 #include <curl/curlver.h>
 #include <time.h>
@@ -251,7 +252,7 @@ http_parse_shoutcast_meta (HTTP_FILE *fp, const char *meta, int size) {
                     deadbeef->plt_modified (plt);
                     deadbeef->plt_unref (plt);
                 }
-                deadbeef->sendmessage (DB_EV_PLAYLISTCHANGED, 0, 0, 0);
+                deadbeef->sendmessage (DB_EV_PLAYLISTCHANGED, 0, DDB_PLAYLIST_CHANGE_CONTENT, 0);
                 if (songstarted) {
 
                     float playpos = deadbeef->streamer_get_playpos ();
@@ -542,7 +543,7 @@ http_content_header_handler (void *ptr, size_t size, size_t nmemb, void *stream)
         deadbeef->plt_unref (plt);
     }
     if (refresh_playlist) {
-        deadbeef->sendmessage (DB_EV_PLAYLISTCHANGED, 0, 0, 0);
+        deadbeef->sendmessage (DB_EV_PLAYLISTCHANGED, 0, DDB_PLAYLIST_CHANGE_CONTENT, 0);
     }
     if (!fp->icyheader) {
         fp->gotsomeheader = 1;
@@ -750,8 +751,8 @@ http_thread_func (void *ctx) {
     }
     else {
         trace ("vfs_curl: thread ended normally\n");
+        fp->status = STATUS_FINISHED;
     }
-    fp->status = STATUS_FINISHED;
     deadbeef->mutex_unlock (fp->mutex);
 }
 
@@ -808,17 +809,19 @@ http_read (void *ptr, size_t size, size_t nmemb, DB_FILE *stream) {
     HTTP_FILE *fp = (HTTP_FILE *)stream;
 //    trace ("http_read %d (status=%d)\n", size*nmemb, fp->status);
     fp->seektoend = 0;
-    int sz = size * nmemb;
     if (fp->status == STATUS_ABORTED || (fp->status == STATUS_FINISHED && fp->remaining == 0)) {
-        return -1;
+        errno = ECONNABORTED;
+        return 0;
     }
     if (!fp->tid) {
         http_start_streamer (fp);
     }
-    while ((fp->remaining > 0 || fp->status != STATUS_FINISHED) && sz > 0)
+
+    size_t sz = size * nmemb;
+    while ((fp->remaining > 0 || fp->status != STATUS_FINISHED && fp->status != STATUS_ABORTED) && sz > 0)
     {
         // wait until data is available
-        while ((fp->remaining == 0 || fp->skipbytes > 0) && fp->status != STATUS_FINISHED) {
+        while ((fp->remaining == 0 || fp->skipbytes > 0) && fp->status != STATUS_FINISHED && fp->status != STATUS_ABORTED) {
 //            trace ("vfs_curl: readwait, status: %d..\n", fp->status);
             deadbeef->mutex_lock (fp->mutex);
             if (fp->status == STATUS_READING) {
@@ -835,6 +838,7 @@ http_read (void *ptr, size_t size, size_t nmemb, DB_FILE *stream) {
                         deadbeef->streamer_reset (1);
                         continue;
                     }
+                    errno = ETIMEDOUT;
                     return 0;
                 }
             }
@@ -871,10 +875,14 @@ http_read (void *ptr, size_t size, size_t nmemb, DB_FILE *stream) {
         }
         deadbeef->mutex_unlock (fp->mutex);
     }
+    if (fp->status == STATUS_ABORTED) {
+        errno = ECONNABORTED;
+        return 0;
+    }
 //    if (size * nmemb == 1) {
 //        trace ("%02x\n", (unsigned int)*((uint8_t*)ptr));
 //    }
-    return size * nmemb - sz;
+    return (size * nmemb - sz) / size;
 }
 
 static int

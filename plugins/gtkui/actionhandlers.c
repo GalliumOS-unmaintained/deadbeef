@@ -24,6 +24,7 @@
 #  include <config.h>
 #endif
 
+#include <stdlib.h>
 #include <string.h>
 #include <gtk/gtk.h>
 #include <unistd.h>
@@ -289,7 +290,7 @@ action_deselect_all_handler_cb (void *user_data) {
         it = next;
     }
     deadbeef->pl_unlock ();
-    deadbeef->sendmessage (DB_EV_PLAYLISTCHANGED, 0, 0, 0);
+    deadbeef->sendmessage (DB_EV_PLAYLISTCHANGED, 0, DDB_PLAYLIST_CHANGE_SELECTION, 0);
     DdbListview *pl = DDB_LISTVIEW (lookup_widget (searchwin, "searchlist"));
     if (pl) {
         ddb_listview_refresh (pl, DDB_REFRESH_LIST);
@@ -306,7 +307,7 @@ action_deselect_all_handler (struct DB_plugin_action_s *action, int ctx) {
 gboolean
 action_select_all_handler_cb (void *user_data) {
     deadbeef->pl_select_all ();
-    deadbeef->sendmessage (DB_EV_PLAYLISTCHANGED, 0, 0, 0);
+    deadbeef->sendmessage (DB_EV_PLAYLISTCHANGED, 0, DDB_PLAYLIST_CHANGE_SELECTION, 0);
     DdbListview *pl = DDB_LISTVIEW (lookup_widget (searchwin, "searchlist"));
     if (pl) {
         ddb_listview_refresh (pl, DDB_REFRESH_LIST);
@@ -498,13 +499,19 @@ action_remove_from_playlist_handler (DB_plugin_action_t *act, int ctx) {
             }
             deadbeef->plt_save_config (plt);
             deadbeef->plt_unref (plt);
-            deadbeef->sendmessage (DB_EV_PLAYLISTCHANGED, 0, 0, 0);
+            deadbeef->sendmessage (DB_EV_PLAYLISTCHANGED, 0, DDB_PLAYLIST_CHANGE_CONTENT, 0);
         }
     }
     else if (ctx == DDB_ACTION_CTX_PLAYLIST) {
-        deadbeef->pl_clear ();
-        deadbeef->pl_save_current ();
-        deadbeef->sendmessage (DB_EV_PLAYLISTCHANGED, 0, 0, 0);
+        ddb_playlist_t *plt_curr = deadbeef->plt_get_curr ();
+        ddb_playlist_t *plt = deadbeef->action_get_playlist ();
+        deadbeef->plt_clear (plt);
+        deadbeef->plt_save_config (plt);
+        if (plt == plt_curr) {
+            deadbeef->sendmessage (DB_EV_PLAYLISTCHANGED, 0, DDB_PLAYLIST_CHANGE_CONTENT, 0);
+        }
+        deadbeef->plt_unref (plt);
+        deadbeef->plt_unref (plt_curr);
     }
     else if (ctx == DDB_ACTION_CTX_NOWPLAYING) {
         int success = 0;
@@ -517,7 +524,7 @@ action_remove_from_playlist_handler (DB_plugin_action_t *act, int ctx) {
                 if (idx != -1) {
                     deadbeef->plt_remove_item (plt, it);
                     deadbeef->pl_save_current ();
-                    deadbeef->sendmessage (DB_EV_PLAYLISTCHANGED, 0, 0, 0);
+                    deadbeef->sendmessage (DB_EV_PLAYLISTCHANGED, 0, DDB_PLAYLIST_CHANGE_CONTENT, 0);
                 }
                 deadbeef->plt_unref (plt);
             }
@@ -616,7 +623,7 @@ action_delete_from_disk_handler_cb (void *data) {
     deadbeef->pl_unlock ();
     deadbeef->plt_unref (plt);
 
-    deadbeef->sendmessage (DB_EV_PLAYLISTCHANGED, 0, 0, 0);
+    deadbeef->sendmessage (DB_EV_PLAYLISTCHANGED, 0, DDB_PLAYLIST_CHANGE_CONTENT, 0);
     return FALSE;
 }
 
@@ -626,15 +633,26 @@ action_delete_from_disk_handler (DB_plugin_action_t *act, int ctx) {
     return 0;
 }
 
+typedef struct {
+    int ctx;
+    ddb_playlist_t *plt;
+} trkproperties_action_ctx_t;
+
 gboolean
 action_show_track_properties_handler_cb (void *data) {
-    show_track_properties_dlg ((intptr_t)data);
+    trkproperties_action_ctx_t *ctx = data;
+    show_track_properties_dlg (ctx->ctx, ctx->plt);
+    deadbeef->plt_unref (ctx->plt);
+    free (data);
     return FALSE;
 }
 
 int
 action_show_track_properties_handler (DB_plugin_action_t *act, int ctx) {
-    gdk_threads_add_idle (action_show_track_properties_handler_cb, (void *)(intptr_t)ctx);
+    trkproperties_action_ctx_t *data = calloc (1, sizeof (trkproperties_action_ctx_t));
+    data->ctx = ctx;
+    data->plt = deadbeef->action_get_playlist ();
+    gdk_threads_add_idle (action_show_track_properties_handler_cb, data);
     return 0;
 }
 
@@ -717,7 +735,7 @@ load_playlist_thread (void *data) {
         deadbeef->plt_unref (plt);
     }
     g_free (fname);
-    deadbeef->sendmessage (DB_EV_PLAYLISTCHANGED, 0, 0, 0);
+    deadbeef->sendmessage (DB_EV_PLAYLISTCHANGED, 0, DDB_PLAYLIST_CHANGE_CONTENT, 0);
 }
 
 
@@ -910,7 +928,7 @@ action_sort_custom_handler_cb (void *data) {
     
     gtk_combo_box_set_active (combo, deadbeef->conf_get_int ("gtkui.sortby_order", 0));
     deadbeef->conf_lock ();
-    gtk_entry_set_text (entry, deadbeef->conf_get_str_fast ("gtkui.sortby_fmt", ""));
+    gtk_entry_set_text (entry, deadbeef->conf_get_str_fast ("gtkui.sortby_fmt_v2", ""));
     deadbeef->conf_unlock ();
 
     int r = gtk_dialog_run (GTK_DIALOG (dlg));
@@ -922,14 +940,14 @@ action_sort_custom_handler_cb (void *data) {
         const char *fmt = gtk_entry_get_text (entry);
 
         deadbeef->conf_set_int ("gtkui.sortby_order", order);
-        deadbeef->conf_set_str ("gtkui.sortby_fmt", fmt);
+        deadbeef->conf_set_str ("gtkui.sortby_fmt_v2", fmt);
 
         ddb_playlist_t *plt = deadbeef->plt_get_curr ();
-        deadbeef->plt_sort (plt, PL_MAIN, -1, fmt, order == 0 ? DDB_SORT_ASCENDING : DDB_SORT_DESCENDING);
+        deadbeef->plt_sort_v2 (plt, PL_MAIN, -1, fmt, order == 0 ? DDB_SORT_ASCENDING : DDB_SORT_DESCENDING);
         deadbeef->plt_save_config (plt);
         deadbeef->plt_unref (plt);
 
-        deadbeef->sendmessage (DB_EV_PLAYLISTCHANGED, 0, 0, 0);
+        deadbeef->sendmessage (DB_EV_PLAYLISTCHANGED, 0, DDB_PLAYLIST_CHANGE_CONTENT, 0);
     }
 
     gtk_widget_destroy (dlg);
@@ -947,7 +965,7 @@ int
 action_crop_selected_handler (DB_plugin_action_t *act, int ctx) {
     deadbeef->pl_crop_selected ();
     deadbeef->pl_save_current ();
-    deadbeef->sendmessage (DB_EV_PLAYLISTCHANGED, 0, 0, 0);
+    deadbeef->sendmessage (DB_EV_PLAYLISTCHANGED, 0, DDB_PLAYLIST_CHANGE_CONTENT, 0);
     return 0;
 }
 

@@ -359,6 +359,8 @@ INTL_DEFAULT_VERBOSITY = @INTL_DEFAULT_VERBOSITY@
 INTL_LIBS = @INTL_LIBS@
 INTL_LIBTOOL_SUFFIX_PREFIX = @INTL_LIBTOOL_SUFFIX_PREFIX@
 INTL_MACOSX_LIBS = @INTL_MACOSX_LIBS@
+JANSSON_CFLAGS = @JANSSON_CFLAGS@
+JANSSON_LIBS = @JANSSON_LIBS@
 JPEG_DEPS_CFLAGS = @JPEG_DEPS_CFLAGS@
 JPEG_DEPS_LIBS = @JPEG_DEPS_LIBS@
 LD = @LD@
@@ -391,6 +393,8 @@ MAINT = @MAINT@
 MAKEINFO = @MAKEINFO@
 MANIFEST_TOOL = @MANIFEST_TOOL@
 MKDIR_P = @MKDIR_P@
+MPG123_CFLAGS = @MPG123_CFLAGS@
+MPG123_LIBS = @MPG123_LIBS@
 MSGFMT = @MSGFMT@
 MSGFMT_015 = @MSGFMT_015@
 MSGMERGE = @MSGMERGE@
@@ -510,25 +514,26 @@ target_alias = @target_alias@
 top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
+convdata = \
+	convpresets/AAC_(Nero_FAAC).txt\
+	convpresets/FLAC_(compression_level_5).txt\
+	convpresets/MP3_CBR_320_Kbps_(Lame).txt\
+	convpresets/MP3_VBR_192Kbps_(Lame).txt\
+	convpresets/MS_RIFF_WAV.txt\
+	convpresets/MusePack.txt\
+	convpresets/Ogg_FLAC.txt\
+	convpresets/Ogg_Vorbis_(-q_5).txt\
+	convpresets/Opus.txt\
+	convpresets/TTA.txt\
+	convpresets/WavPack.txt\
+	convpresets/ALAC.txt
+
+EXTRA_DIST = $(convdata) converter.glade
 @HAVE_CONVERTER_TRUE@@HAVE_GTK2_FALSE@@HAVE_GTK3_TRUE@pkglib_LTLIBRARIES = converter.la converter_gtk3.la
 @HAVE_CONVERTER_TRUE@@HAVE_GTK2_TRUE@@HAVE_GTK3_FALSE@pkglib_LTLIBRARIES = converter.la converter_gtk2.la
 @HAVE_CONVERTER_TRUE@@HAVE_GTK2_TRUE@@HAVE_GTK3_TRUE@pkglib_LTLIBRARIES = converter.la converter_gtk2.la converter_gtk3.la
 @HAVE_CONVERTER_TRUE@convdatadir = $(libdir)/deadbeef/convpresets
-@HAVE_CONVERTER_TRUE@convdata_DATA = \
-@HAVE_CONVERTER_TRUE@	presets/AAC_(Nero_FAAC).txt\
-@HAVE_CONVERTER_TRUE@	presets/FLAC_(compression_level_5).txt\
-@HAVE_CONVERTER_TRUE@	presets/MP3_CBR_320_Kbps_(Lame).txt\
-@HAVE_CONVERTER_TRUE@	presets/MP3_VBR_192Kbps_(Lame).txt\
-@HAVE_CONVERTER_TRUE@	presets/MS_RIFF_WAV.txt\
-@HAVE_CONVERTER_TRUE@	presets/MusePack.txt\
-@HAVE_CONVERTER_TRUE@	presets/Ogg_FLAC.txt\
-@HAVE_CONVERTER_TRUE@	presets/Ogg_Vorbis_(-q_5).txt\
-@HAVE_CONVERTER_TRUE@	presets/Opus.txt\
-@HAVE_CONVERTER_TRUE@	presets/TTA.txt\
-@HAVE_CONVERTER_TRUE@	presets/WavPack.txt\
-@HAVE_CONVERTER_TRUE@	presets/ALAC.txt
-
-@HAVE_CONVERTER_TRUE@EXTRA_DIST = $(convdata_DATA) converter.glade
+@HAVE_CONVERTER_TRUE@convdata_DATA = $(convdata)
 @HAVE_CONVERTER_TRUE@AM_CFLAGS = $(CFLAGS) -std=c99 -fPIC
 @HAVE_CONVERTER_TRUE@converter_la_SOURCES = converter.c converter.h
 @HAVE_CONVERTER_TRUE@converter_la_LDFLAGS = -module -avoid-version

@@ -32,7 +32,8 @@ Build-Depends: debhelper (>= 7.0.50),
                zlib1g-dev,
                libx11-dev,
                yasm,
-               libgtk-3-dev
+               libgtk-3-dev,
+               libjansson-dev
 
 Package: deadbeef-plugins-dev
 Section: libdevel

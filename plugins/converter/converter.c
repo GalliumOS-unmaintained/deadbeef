@@ -1,31 +1,34 @@
 /*
-    DeaDBeeF - The Ultimate Music Player
-    Copyright (C) 2009-2013 Alexey Yakovenko <waker@users.sourceforge.net>
+    Converter for DeaDBeeF Player
+    Copyright (C) 2009-2015 Alexey Yakovenko and other contributors
 
-    This program is free software; you can redistribute it and/or
-    modify it under the terms of the GNU General Public License
-    as published by the Free Software Foundation; either version 2
-    of the License, or (at your option) any later version.
-    
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
-    
-    You should have received a copy of the GNU General Public License
-    along with this program; if not, write to the Free Software
-    Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+    This software is provided 'as-is', without any express or implied
+    warranty.  In no event will the authors be held liable for any damages
+    arising from the use of this software.
+
+    Permission is granted to anyone to use this software for any purpose,
+    including commercial applications, and to alter it and redistribute it
+    freely, subject to the following restrictions:
+
+    1. The origin of this software must not be misrepresented; you must not
+     claim that you wrote the original software. If you use this software
+     in a product, an acknowledgment in the product documentation would be
+     appreciated but is not required.
+
+    2. Altered source versions must be plainly marked as such, and must not be
+     misrepresented as being the original software.
+
+    3. This notice may not be removed or altered from any source distribution.
 */
+
 #ifdef HAVE_CONFIG_H
 #  include "../../config.h"
 #endif
 #if HAVE_SYS_CDEFS_H
 #include <sys/cdefs.h>
 #endif
-#if HAVE_SYS_SYSLIMITS_H
-#include <sys/syslimits.h>
-#endif
 #include <stdlib.h>
+#include <limits.h>
 #include <string.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -506,6 +509,8 @@ load_encoder_presets (void) {
                         if (!p) {
                             // NOTE: we don't delete duplicate presets in $HOME
                             // for compat with <=0.6.1
+                            encoder_preset_free (p);
+                            p = NULL;
                             continue;
                         }
                     }
@@ -518,9 +523,12 @@ load_encoder_presets (void) {
                     }
                 }
             }
+        }
+        for (i = 0; i < n; i++) {
             free (namelist[i]);
         }
         free (namelist);
+        namelist = NULL;
     }
     return 0;
 }
@@ -645,20 +653,12 @@ dsp_preset_replace (ddb_dsp_preset_t *from, ddb_dsp_preset_t *to) {
     to->next = from->next;
 }
 
-
 static void
-get_output_field (DB_playItem_t *it, const char *field, char *out, int sz)
-{
-    int idx = deadbeef->pl_get_idx_of (it);
-    char temp[PATH_MAX];
-    char fmt[strlen(field)+3];
-    snprintf (fmt, sizeof (fmt), "%%/%s", field);
-    deadbeef->pl_format_title (it, idx, temp, sizeof (temp), -1, fmt);
-
+escape_filepath (const char *path, char *out, int sz) {
     // escape special chars
     char invalid[] = "$\"`\\";
     char *p = out;
-    char *t = temp;
+    const char *t = path;
     int n = sz;
     while (*t && n > 1) {
         if (strchr (invalid, *t)) {
@@ -674,11 +674,54 @@ get_output_field (DB_playItem_t *it, const char *field, char *out, int sz)
         t++;
     }
     *p = 0;
+}
+
+static void
+get_output_field (DB_playItem_t *it, const char *field, char *out, int sz)
+{
+    int idx = deadbeef->pl_get_idx_of (it);
+    char temp[PATH_MAX];
+    char fmt[strlen(field)+3];
+    snprintf (fmt, sizeof (fmt), "%%/%s", field);
+    deadbeef->pl_format_title (it, idx, temp, sizeof (temp), -1, fmt);
+
+    strncpy (out, temp, sz);
+    out[sz-1] = 0;
     trace ("field '%s' expanded to '%s'\n", field, out);
 }
 
-void
-get_output_path (DB_playItem_t *it, const char *outfolder_user, const char *outfile, ddb_encoder_preset_t *encoder_preset, int preserve_folder_structure, const char *root_folder, int write_to_source_folder, char *out, int sz) {
+static void
+get_output_field2 (DB_playItem_t *it, ddb_playlist_t *plt, const char *field, char *out, int sz)
+{
+    int idx = deadbeef->pl_get_idx_of (it);
+    char temp[PATH_MAX];
+
+    char *tf = deadbeef->tf_compile (field);
+    if (!tf) {
+        *out = 0;
+        return;
+    }
+
+    ddb_tf_context_t ctx = {
+        ._size = sizeof (ddb_tf_context_t),
+        .flags = DDB_TF_CONTEXT_HAS_INDEX,
+        .it = it,
+        .idx = idx,
+        .iter = PL_MAIN,
+        .plt = plt,
+    };
+
+    deadbeef->tf_eval (&ctx, tf, temp, sizeof (temp));
+    deadbeef->tf_free (tf);
+
+    strncpy (out, temp, sz);
+    out[sz-1] = 0;
+    trace ("field '%s' expanded to '%s'\n", field, out);
+}
+
+
+static void
+get_output_path_int (DB_playItem_t *it, ddb_playlist_t *plt, const char *outfolder_user, const char *outfile, ddb_encoder_preset_t *encoder_preset, int preserve_folder_structure, const char *root_folder, int write_to_source_folder, char *out, int sz, int use_new_tf) {
     trace ("get_output_path: %s %s %s\n", outfolder_user, outfile, root_folder);
     deadbeef->pl_lock ();
     const char *uri = strdupa (deadbeef->pl_find_meta (it, ":URI"));
@@ -686,7 +729,7 @@ get_output_path (DB_playItem_t *it, const char *outfolder_user, const char *outf
     char outfolder_preserve[2000];
     if (preserve_folder_structure) {
         // generate new outfolder
-        int rootlen = strlen (root_folder);
+        size_t rootlen = strlen (root_folder);
         const char *e = strrchr (uri, '/');
         if (e) {
             const char *s = uri + rootlen;
@@ -713,37 +756,27 @@ get_output_path (DB_playItem_t *it, const char *outfolder_user, const char *outf
 
     int l;
     char fname[PATH_MAX];
-    int pathl = strlen(outfolder)*2+1;
+    size_t pathl = strlen(outfolder)*2+1;
     char path[pathl];
     char *pattern = strdupa (outfile);
 
-    // escape special chars
-    char invalid[] = "$\"`\\";
-    char *p = path;
-    const char *t = outfolder;
-    while (*t && pathl > 1) {
-        if (strchr (invalid, *t)) {
-            *p++ = '\\';
-            pathl--;
-        }
-        *p++ = *t;
-        pathl--;
-        t++;
-    }
-    *p = 0;
-    snprintf (out, sz, "%s/", path);
+    snprintf (out, sz, "%s/", outfolder);
 
-    // split path and create directories
+    // split path, and expand each path component using get_output_field
     char *field = pattern;
     char *s = pattern;
     while (*s) {
         if ((*s == '/') || (*s == '\\')) {
             *s = '\0';
-            get_output_field (it, field, fname, sizeof(fname));
+            if (use_new_tf) {
+                get_output_field2(it, plt, field, fname, sizeof (fname));
+            }
+            else {
+                get_output_field (it, field, fname, sizeof (fname));
+            }
 
             l = strlen (out);
             snprintf (out+l, sz-l, "%s/", fname);
-            mkdir (out, 0755);
 
             field = s+1;
         }
@@ -751,11 +784,26 @@ get_output_path (DB_playItem_t *it, const char *outfolder_user, const char *outf
     }
 
     // last part of outfile is the filename
-    get_output_field (it, field, fname, sizeof(fname));
+    if (use_new_tf) {
+        get_output_field2(it, plt, field, fname, sizeof (fname));
+    }
+    else {
+        get_output_field (it, field, fname, sizeof(fname));
+    }
 
     l = strlen (out);
     snprintf (out+l, sz-l, "%s.%s", fname, encoder_preset->ext);
     trace ("converter output file is '%s'\n", out);
+}
+
+void
+get_output_path (DB_playItem_t *it, const char *outfolder_user, const char *outfile, ddb_encoder_preset_t *encoder_preset, int preserve_folder_structure, const char *root_folder, int write_to_source_folder, char *out, int sz) {
+    get_output_path_int (it, NULL, outfolder_user, outfile, encoder_preset, preserve_folder_structure, root_folder, write_to_source_folder, out, sz, 0);
+}
+
+void
+get_output_path2 (DB_playItem_t *it, ddb_playlist_t *plt, const char *outfolder_user, const char *outfile, ddb_encoder_preset_t *encoder_preset, int preserve_folder_structure, const char *root_folder, int write_to_source_folder, char *out, int sz) {
+    get_output_path_int (it, plt, outfolder_user, outfile, encoder_preset, preserve_folder_structure, root_folder, write_to_source_folder, out, sz, 1);
 }
 
 static void
@@ -792,6 +840,21 @@ check_dir (const char *dir, mode_t mode)
     free (tmp);
     return 1;
 }
+
+static inline void
+write_int32_le (char *p, uint32_t value) {
+    p[0] = value & 0xff;
+    p[1] = (value >> 8) & 0xff;
+    p[2] = (value >> 16) & 0xff;
+    p[3] = (value >> 24) & 0xff;
+}
+
+static inline void
+write_int16_le (char *p, uint16_t value) {
+    p[0] = value & 0xff;
+    p[1] = (value >> 8) & 0xff;
+}
+
 
 int
 convert (DB_playItem_t *it, const char *out, int output_bps, int output_is_float, ddb_encoder_preset_t *encoder_preset, ddb_dsp_preset_t *dsp_preset, int *abort) {
@@ -854,10 +917,19 @@ convert (DB_playItem_t *it, const char *out, int output_bps, int output_is_float
             char enc[2000];
             memset (enc, 0, sizeof (enc));
 
+            char escaped_out[PATH_MAX];
+            escape_filepath (out, escaped_out, sizeof (escaped_out));
+
             // formatting: %o = outfile, %i = infile
             char *e = encoder_preset->encoder;
             char *o = enc;
             *o = 0;
+
+#ifdef __APPLE__
+            strcpy (o, "/usr/local/bin/");
+            o += 15;
+#endif
+
             int len = sizeof (enc);
             while (e && *e) {
                 if (len <= 0) {
@@ -866,7 +938,7 @@ convert (DB_playItem_t *it, const char *out, int output_bps, int output_is_float
                 }
                 if (e[0] == '%' && e[1]) {
                     if (e[1] == 'o') {
-                        int l = snprintf (o, len, "\"%s\"", out);
+                        int l = snprintf (o, len, "\"%s\"", escaped_out);
                         o += l;
                         len -= l;
                     }
@@ -895,6 +967,7 @@ convert (DB_playItem_t *it, const char *out, int output_bps, int output_is_float
 
             if (!encoder_preset->encoder[0]) {
                 // write to wave file
+                trace ("opening %s\n", out);
                 temp_file = open (out, O_LARGEFILE | O_WRONLY | O_CREAT | O_TRUNC, wrmode);
                 if (temp_file == -1) {
                     fprintf (stderr, "converter: failed to open output wave file %s\n", out);
@@ -940,9 +1013,9 @@ convert (DB_playItem_t *it, const char *out, int output_bps, int output_is_float
             int bs = 2000 * samplesize;
             // expected buffer size after worst-case dsp
             int dspsize = bs/samplesize*sizeof(float)*8*48;
-            char *buffer = malloc (dspsize);
+            buffer = malloc (dspsize);
             // account for up to float32 7.1 resampled to 48x ratio
-            char *dspbuffer = malloc (dspsize);
+            dspbuffer = malloc (dspsize);
             int eof = 0;
             for (;;) {
                 if (eof) {
@@ -1031,12 +1104,12 @@ convert (DB_playItem_t *it, const char *out, int output_bps, int output_is_float
                     if (chunksize <= 0xffffffff) {
                         size32 = chunksize;
                     }
-                    memcpy (&wavehdr[4], &size32, 4);
-                    memcpy (&wavehdr[22], &outch, 2);
-                    memcpy (&wavehdr[24], &outsr, 4);
+                    write_int32_le (wavehdr+4, size32);
+                    write_int16_le (wavehdr+22, outch);
+                    write_int32_le (wavehdr+24, outsr);
                     uint16_t blockalign = outch * output_bps / 8;
-                    memcpy (&wavehdr[32], &blockalign, 2);
-                    memcpy (&wavehdr[34], &output_bps, 2);
+                    write_int16_le (wavehdr+32, blockalign);
+                    write_int16_le (wavehdr+34, output_bps);
 
                     size32 = 0xffffffff;
                     if (size <= 0xffffffff) {
@@ -1123,27 +1196,18 @@ error:
     if (encoder_preset->tag_id3v2 || encoder_preset->tag_id3v1 || encoder_preset->tag_apev2 || encoder_preset->tag_flac || encoder_preset->tag_oggvorbis) {
         out_it = deadbeef->pl_item_alloc ();
         deadbeef->pl_item_copy (out_it, it);
-        char unesc_path[2000];
-        char invalid[] = "$\"`\\";
-        const char *p = out;
-        char *o = unesc_path;
-        while (*p) {
-            if (*p == '\\') {
-                p++;
-            }
-            *o++ = *p++;
-        }
-        *o = 0;
         deadbeef->pl_set_item_flags (out_it, 0);
         DB_metaInfo_t *m = deadbeef->pl_get_metadata_head (out_it);
         while (m) {
             DB_metaInfo_t *next = m->next;
             if (m->key[0] == ':' || m->key[0] == '!' || !strcasecmp (m->key, "cuesheet")) {
-                deadbeef->pl_delete_metadata (out_it, m);
+                if (strcasestr (m->key, ":REPLAYGAIN_")) {
+                    deadbeef->pl_delete_metadata (out_it, m);
+                }
             }
             m = next;
         }
-        deadbeef->pl_replace_meta (out_it, ":URI", unesc_path);
+        deadbeef->pl_replace_meta (out_it, ":URI", out);
     }
 
     uint32_t tagflags = 0;
@@ -1239,28 +1303,33 @@ static ddb_converter_t plugin = {
     .misc.plugin.api_vmajor = 1,
     .misc.plugin.api_vminor = 0,
     .misc.plugin.version_major = 1,
-    .misc.plugin.version_minor = 3,
+    .misc.plugin.version_minor = 4,
     .misc.plugin.type = DB_PLUGIN_MISC,
     .misc.plugin.name = "Converter",
     .misc.plugin.id = "converter",
     .misc.plugin.descr = "Converts any supported formats to other formats.\n"
         "Requires separate GUI plugin, e.g. Converter GTK UI\n",
     .misc.plugin.copyright = 
-        "Copyright (C) 2009-2013 Alexey Yakovenko <waker@users.sourceforge.net>\n"
+        "Converter for DeaDBeeF Player\n"
+        "Copyright (C) 2009-2015 Alexey Yakovenko and other contributors\n"
         "\n"
-        "This program is free software; you can redistribute it and/or\n"
-        "modify it under the terms of the GNU General Public License\n"
-        "as published by the Free Software Foundation; either version 2\n"
-        "of the License, or (at your option) any later version.\n"
+        "This software is provided 'as-is', without any express or implied\n"
+        "warranty.  In no event will the authors be held liable for any damages\n"
+        "arising from the use of this software.\n"
         "\n"
-        "This program is distributed in the hope that it will be useful,\n"
-        "but WITHOUT ANY WARRANTY; without even the implied warranty of\n"
-        "MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the\n"
-        "GNU General Public License for more details.\n"
+        "Permission is granted to anyone to use this software for any purpose,\n"
+        "including commercial applications, and to alter it and redistribute it\n"
+        "freely, subject to the following restrictions:\n"
         "\n"
-        "You should have received a copy of the GNU General Public License\n"
-        "along with this program; if not, write to the Free Software\n"
-        "Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.\n"
+        "1. The origin of this software must not be misrepresented; you must not\n"
+        " claim that you wrote the original software. If you use this software\n"
+        " in a product, an acknowledgment in the product documentation would be\n"
+        " appreciated but is not required.\n"
+        "\n"
+        "2. Altered source versions must be plainly marked as such, and must not be\n"
+        " misrepresented as being the original software.\n"
+        "\n"
+        "3. This notice may not be removed or altered from any source distribution.\n"
     ,
     .misc.plugin.website = "http://deadbeef.sf.net",
     .misc.plugin.start = converter_start,
@@ -1296,6 +1365,8 @@ static ddb_converter_t plugin = {
     // 1.2 entry points
     .convert = convert,
     .get_output_path = get_output_path,
+    // 1.4 entry points
+    .get_output_path2 = get_output_path2,
 };
 
 DB_plugin_t *

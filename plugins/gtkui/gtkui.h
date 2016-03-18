@@ -1,27 +1,28 @@
 /*
-    DeaDBeeF - The Ultimate Music Player
-    Copyright (C) 2009-2013 Alexey Yakovenko <waker@users.sourceforge.net>
+    DeaDBeeF -- the music player
+    Copyright (C) 2009-2015 Alexey Yakovenko and other contributors
 
-    This program is free software; you can redistribute it and/or
-    modify it under the terms of the GNU General Public License
-    as published by the Free Software Foundation; either version 2
-    of the License, or (at your option) any later version.
-    
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
-    
-    You should have received a copy of the GNU General Public License
-    along with this program; if not, write to the Free Software
-    Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+    This software is provided 'as-is', without any express or implied
+    warranty.  In no event will the authors be held liable for any damages
+    arising from the use of this software.
+
+    Permission is granted to anyone to use this software for any purpose,
+    including commercial applications, and to alter it and redistribute it
+    freely, subject to the following restrictions:
+
+    1. The origin of this software must not be misrepresented; you must not
+     claim that you wrote the original software. If you use this software
+     in a product, an acknowledgment in the product documentation would be
+     appreciated but is not required.
+
+    2. Altered source versions must be plainly marked as such, and must not be
+     misrepresented as being the original software.
+
+    3. This notice may not be removed or altered from any source distribution.
 */
+
 #ifndef __GTKUI_H
 #define __GTKUI_H
-
-#if HAVE_NOTIFY
-#define NOTIFY_DEFAULT_FORMAT "%a - %t"
-#endif
 
 #include <gtk/gtk.h>
 
@@ -34,14 +35,29 @@
 extern DB_functions_t *deadbeef;
 extern GtkWidget *mainwin;
 extern GtkWidget *searchwin;
+
+extern int gtkui_embolden_selected_tracks;
+extern int gtkui_embolden_tracks;
 extern int gtkui_embolden_current_track;
+extern int gtkui_italic_selected_tracks;
+extern int gtkui_italic_tracks;
+extern int gtkui_italic_current_track;
+
 extern int gtkui_is_retina;
 extern int gtkui_unicode_playstate;
 extern int gtkui_disable_seekbar_overlay;
 
+extern int gtkui_tabstrip_embolden_selected;
+extern int gtkui_tabstrip_embolden_playing;
+extern int gtkui_tabstrip_italic_selected;
+extern int gtkui_tabstrip_italic_playing;
+
 struct _GSList;
 
 extern int gtkui_groups_pinned;
+
+extern const char *gtkui_default_titlebar_playing;
+extern const char *gtkui_default_titlebar_stopped;
 
 // misc utility functions
 
@@ -152,10 +168,19 @@ plt_get_title_wrapper (int plt, char *buffer, int len);
 void
 gtkui_quit (void);
 
+extern int gtkui_hotkey_grabbing;
+gboolean
+on_hotkeys_set_key_key_press_event     (GtkWidget       *widget,
+                                        GdkEventKey     *event,
+                                        gpointer         user_data);
+
 void
 gtkui_run_preferences_dlg (void);
 
 int
 gtkui_get_gui_refresh_rate ();
+
+void
+gtkui_titlebar_tf_init (void);
 
 #endif

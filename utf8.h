@@ -47,7 +47,7 @@ int u8_toucs(uint32_t *dest, int32_t sz, const char *src, int32_t srcsz);
 int u8_toutf8(char *dest, int32_t sz, uint32_t *src, int32_t srcsz);
 
 /* single character to UTF-8 */
-int u8_wc_toutf8(char *dest, wchar_t ch);
+int u8_wc_toutf8(char *dest, uint32_t ch);
 
 /* character number to byte offset */
 int u8_offset(char *str, int32_t charnum);
@@ -57,6 +57,19 @@ int u8_charnum(char *s, int32_t offset);
 
 /* return next character, updating an index variable */
 uint32_t u8_nextchar(const char *s, int32_t *i);
+
+/* copies num_chars characters from src to dest, return bytes written */
+int u8_strncpy (char *dest, const char* src, int num_chars);
+
+/* copy num_bytes maximum bytes from src to dest, but always stop at the last possible utf8 character boundary;
+ return number of bytes copied
+ */
+int u8_strnbcpy (char *dest, const char* src, int num_bytes);
+
+/* copy single utf8 character of up to num_bytes bytes large, only if num_bytes is large enough;
+  return number of bytes copied
+ */
+int u8_charcpy (char *dest, const char *src, int num_bytes);
 
 /* move to next character */
 void u8_inc(const char *s, int32_t *i);
@@ -112,6 +125,9 @@ int u8_valid (const char  *str,
 
 int
 u8_tolower (const signed char *c, int l, char *out);
+
+int
+u8_toupper (const signed char *c, int l, char *out);
 
 int
 u8_strcasecmp (const char *a, const char *b);

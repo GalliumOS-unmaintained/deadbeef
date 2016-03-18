@@ -420,28 +420,6 @@ plt_sort (playlist_t *plt, int iter, int id, const char *format, int order);
 void
 plt_sort_random (playlist_t *plt, int iter);
 
-// playqueue support functions
-int
-pl_playqueue_push (playItem_t *it);
-
-void
-pl_playqueue_clear (void);
-
-void
-pl_playqueue_pop (void);
-
-void
-pl_playqueue_remove (playItem_t *it);
-
-int
-pl_playqueue_test (playItem_t *it);
-
-playItem_t *
-pl_playqueue_getnext (void);
-
-int
-pl_playqueue_getcount (void);
-
 void
 pl_items_copy_junk (struct playItem_s *from, struct playItem_s *first, struct playItem_s *last);
 
@@ -531,5 +509,14 @@ plt_set_scroll (playlist_t *plt, int scroll);
 
 int
 plt_get_scroll (playlist_t *plt);
+
+const char *
+pl_format_duration (playItem_t *it, const char *ret, char *dur, int size);
+
+int
+pl_format_item_queue (playItem_t *it, char *s, int size);
+
+void
+send_trackinfochanged (playItem_t *track);
 
 #endif // __PLAYLIST_H

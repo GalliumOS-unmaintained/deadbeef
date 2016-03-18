@@ -1,26 +1,37 @@
 /*
-    DeaDBeeF - The Ultimate Music Player
-    Copyright (C) 2009-2013 Alexey Yakovenko <waker@users.sourceforge.net>
+    Converter for DeaDBeeF Player
+    Copyright (C) 2009-2015 Alexey Yakovenko and other contributors
 
-    This program is free software; you can redistribute it and/or
-    modify it under the terms of the GNU General Public License
-    as published by the Free Software Foundation; either version 2
-    of the License, or (at your option) any later version.
-    
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
-    
-    You should have received a copy of the GNU General Public License
-    along with this program; if not, write to the Free Software
-    Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+    This software is provided 'as-is', without any express or implied
+    warranty.  In no event will the authors be held liable for any damages
+    arising from the use of this software.
+
+    Permission is granted to anyone to use this software for any purpose,
+    including commercial applications, and to alter it and redistribute it
+    freely, subject to the following restrictions:
+
+    1. The origin of this software must not be misrepresented; you must not
+     claim that you wrote the original software. If you use this software
+     in a product, an acknowledgment in the product documentation would be
+     appreciated but is not required.
+
+    2. Altered source versions must be plainly marked as such, and must not be
+     misrepresented as being the original software.
+
+    3. This notice may not be removed or altered from any source distribution.
 */
 #ifndef __CONVERTER_H
 #define __CONVERTER_H
 
 #include <stdint.h>
 #include "../../deadbeef.h"
+
+// changes in 1.4:
+//   changed escaping rules:
+//   now get_output_path returns unescaped path, and doesn't create folders
+//   added get_output_path2
+// changes in 1.3:
+//   readonly preset support
 
 enum {
     DDB_ENCODER_METHOD_PIPE = 0,
@@ -176,8 +187,33 @@ typedef struct {
             ddb_dsp_preset_t *dsp_preset, // dsp preset to use
             int *abort // *abort will be checked regularly, conversion will be interrupted if it's non-zero
     );
+
+    // The 'get_output_path' function should be used to get the fully
+    // qualified output file path, to be passed to 'convert' function.
+    // It is commonly used by converter GUI.
+    // Parameters:
+    //  it: the track
+    //  outfolder: the folder to write the file to (usually specified in GUI)
+    //  outfile: the filename pattern, which may include additional folder
+    //           structure, and title formatting; without extension.
+    //           examples: "%artist% - %title%", "subfolder/%title%"
+    //  encoder_preset: an existing encoder preset.
+    //  preserve_folder_structure: set to 1 to recreate the existing folder
+    //                             structure, when converting multiple files
+    //  root_folder: common root path of all the tracks being converted in 1 go.
+    //  write_to_source_folder: set to 1 to write output to the same folders
+    //                          where input files are located.
+    //  out: the buffer for the output file path,
+    //       which will come out not escaped, will include the file extension.
+    //  sz: size of the out buffer.
     void
     (*get_output_path) (DB_playItem_t *it, const char *outfolder, const char *outfile, ddb_encoder_preset_t *encoder_preset, int preserve_folder_structure, const char *root_folder, int write_to_source_folder, char *out, int sz);
+
+    // since 1.4
+    // same as get_output_path, but takes playlist as argument, and used the new title formatting
+    // plt: the playlist which contains the track 'it'
+    void
+    (*get_output_path2) (DB_playItem_t *it, ddb_playlist_t *plt, const char *outfolder, const char *outfile, ddb_encoder_preset_t *encoder_preset, int preserve_folder_structure, const char *root_folder, int write_to_source_folder, char *out, int sz);
 } ddb_converter_t;
 
 #endif

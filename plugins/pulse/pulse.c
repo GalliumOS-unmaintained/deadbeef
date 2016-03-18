@@ -33,6 +33,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <assert.h>
 #include "../../deadbeef.h"
 
 //#define trace(...) { fprintf(stdout, __VA_ARGS__); }
@@ -43,6 +44,7 @@ DB_functions_t * deadbeef;
 
 #define CONFSTR_PULSE_SERVERADDR "pulse.serveraddr"
 #define CONFSTR_PULSE_BUFFERSIZE "pulse.buffersize"
+#define PULSE_DEFAULT_BUFFERSIZE 4096
 
 static intptr_t pulse_tid;
 static int pulse_terminate;
@@ -131,7 +133,7 @@ static int pulse_set_spec(ddb_waveformat_t *fmt)
     //attr->minreq = Playback only: minimum request.
     //attr->fragsize = Recording only: fragment size.
 
-    buffer_size = deadbeef->conf_get_int(CONFSTR_PULSE_BUFFERSIZE, 4096);
+    buffer_size = deadbeef->conf_get_int(CONFSTR_PULSE_BUFFERSIZE, PULSE_DEFAULT_BUFFERSIZE);
 
     // TODO: where list of all available devices? add this option to config too..
     char * dev = NULL;
@@ -162,7 +164,8 @@ static int pulse_init(void)
 {
     trace ("pulse_init\n");
     state = OUTPUT_STATE_STOPPED;
-    pulse_terminate = 0;
+    trace ("pulse_terminate=%d\n", pulse_terminate);
+    assert (!pulse_terminate);
 
     if (requested_fmt.samplerate != 0) {
         memcpy (&plugin.fmt, &requested_fmt, sizeof (ddb_waveformat_t));
@@ -217,13 +220,15 @@ static int pulse_free(void)
 {
     trace("pulse_free\n");
 
-    if (pulse_tid)
-    {
-        pulse_terminate = 1;
-        deadbeef->thread_join(pulse_tid);
+    if (!pulse_tid) {
+        return 0;
     }
 
+    intptr_t tid = pulse_tid;
     pulse_tid = 0;
+    pulse_terminate = 1;
+    deadbeef->thread_join(tid);
+
     state = OUTPUT_STATE_STOPPED;
     if (s)
     {
@@ -236,6 +241,7 @@ static int pulse_free(void)
 
 static int pulse_play(void)
 {
+    trace ("pulse_play\n");
     if (!pulse_tid)
     {
         if (pulse_init () < 0)
@@ -250,27 +256,35 @@ static int pulse_play(void)
 
 static int pulse_stop(void)
 {
+    trace ("pulse_stop\n");
     state = OUTPUT_STATE_STOPPED;
     deadbeef->streamer_reset(1);
+    pulse_free();
     return 0;
 }
 
 static int pulse_pause(void)
 {
+    trace ("pulse_pause\n");
     if (state == OUTPUT_STATE_STOPPED)
     {
         return -1;
     }
 
+    pulse_free();
     state = OUTPUT_STATE_PAUSED;
-
     return 0;
 }
 
 static int pulse_unpause(void)
 {
+    trace ("pulse_unpause\n");
     if (state == OUTPUT_STATE_PAUSED)
     {
+        if (pulse_init () < 0)
+        {
+            return -1;
+        }
         state = OUTPUT_STATE_PLAYING;
     }
 
@@ -309,11 +323,12 @@ static void pulse_thread(void *context)
         if (res < 0)
         {
             fprintf(stderr, "pulse: failed to write buffer\n");
-            pulse_tid = 0;
-            pulse_free ();
-            break;
+            usleep(10000);
         }
     }
+
+    pulse_terminate = 0;
+    trace ("pulse_thread finished\n");
 }
 
 static void pulse_callback(char *stream, int len)
@@ -350,9 +365,12 @@ DB_plugin_t * pulse_load(DB_functions_t *api)
     return DB_PLUGIN (&plugin);
 }
 
+#define STR_HELPER(x) #x
+#define STR(x) STR_HELPER(x)
+
 static const char settings_dlg[] =
     "property \"PulseAudio server\" entry " CONFSTR_PULSE_SERVERADDR " default;\n"
-    "property \"Preferred buffer size\" entry " CONFSTR_PULSE_BUFFERSIZE " 8192;\n";
+    "property \"Preferred buffer size\" entry " CONFSTR_PULSE_BUFFERSIZE " " STR(PULSE_DEFAULT_BUFFERSIZE) ";\n";
 
 static DB_output_t plugin =
 {

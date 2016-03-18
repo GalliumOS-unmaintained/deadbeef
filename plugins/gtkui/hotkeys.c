@@ -236,6 +236,7 @@ action_tree_append (const char *title, GtkTreeStore *store, GtkTreeIter *root_it
     char *t = strdupa (title);
     char *p = t;
     GtkTreeIter i;
+    GtkTreeIter newroot;
     int got_iter = 0;
     for (;;) {
         char *s = strchr (p, '/');
@@ -257,7 +258,8 @@ action_tree_append (const char *title, GtkTreeStore *store, GtkTreeIter *root_it
         if (!res) {
             gtk_tree_store_append (store, &i, root_iter);
             gtk_tree_store_set (store, &i, 0, p, 1, NULL, 2, -1, -1);
-            root_iter = &i;
+            memcpy (&newroot, &i, sizeof (GtkTreeIter));
+            root_iter = &newroot;
         }
         else {
             int found = 0;
@@ -266,7 +268,8 @@ action_tree_append (const char *title, GtkTreeStore *store, GtkTreeIter *root_it
                 gtk_tree_model_get_value (GTK_TREE_MODEL (store), &i, 0, &val);
                 const char *n = g_value_get_string (&val);
                 if (n && !strcmp (n, p)) {
-                    root_iter = &i;
+                    memcpy (&newroot, &i, sizeof (GtkTreeIter));
+                    root_iter = &newroot;
                     found = 1;
                     break;
                 }
@@ -318,6 +321,7 @@ init_action_tree (GtkWidget *actions, const char *act, int ctx) {
     GtkTreeIter action_main_iter;
     gtk_tree_store_append (actions_store, &action_main_iter, NULL);
     gtk_tree_store_set (actions_store, &action_main_iter, 0, _("Main"), -1);
+
     GtkTreeIter action_selection_iter;
     gtk_tree_store_append (actions_store, &action_selection_iter, NULL);
     gtk_tree_store_set (actions_store, &action_selection_iter, 0, _("Selected track(s)"), -1);
@@ -665,7 +669,7 @@ get_name_for_keycode (int keycode) {
 }
 
 
-static int grabbed = 0;
+int gtkui_hotkey_grabbing = 0;
 
 static void
 get_keycombo_string (guint accel_key, GdkModifierType accel_mods, char *new_value) {
@@ -727,11 +731,13 @@ get_keycombo_string (guint accel_key, GdkModifierType accel_mods, char *new_valu
     strcat (new_value, name);
 }
 
+static GtkWidget *hotkey_grabber_button;
 gboolean
 on_hotkeys_set_key_key_press_event     (GtkWidget       *widget,
                                         GdkEventKey     *event,
                                         gpointer         user_data)
 {
+    widget = hotkey_grabber_button;
     GdkModifierType accel_mods = 0;
     guint accel_key;
     gchar *path;
@@ -742,7 +748,7 @@ on_hotkeys_set_key_key_press_event     (GtkWidget       *widget,
     GtkTreePath *curpath;
     GtkTreeIter iter;
 
-    if (!grabbed) {
+    if (!gtkui_hotkey_grabbing) {
         return FALSE;
     }
 
@@ -825,7 +831,7 @@ out:
     }
     gdk_display_keyboard_ungrab (display, GDK_CURRENT_TIME);
     gdk_display_pointer_ungrab (display, GDK_CURRENT_TIME);
-    grabbed = 0;
+    gtkui_hotkey_grabbing = 0;
     gtkui_hotkeys_changed = 1;
     return TRUE;
 }
@@ -833,10 +839,10 @@ out:
 static void
 hotkey_grab_focus (GtkWidget *widget) {
     GdkDisplay *display = gtk_widget_get_display (widget);
-    if (grabbed) {
+    if (gtkui_hotkey_grabbing) {
         return;
     }
-    grabbed = 0;
+    gtkui_hotkey_grabbing = 0;
     if (GDK_GRAB_SUCCESS != gdk_keyboard_grab (gtk_widget_get_window (widget), FALSE, GDK_CURRENT_TIME)) {
         return;
     }
@@ -850,7 +856,10 @@ hotkey_grab_focus (GtkWidget *widget) {
         return;
     }
     gtk_button_set_label (GTK_BUTTON (widget), _("New key combination..."));
-    grabbed = 1;
+    gtkui_hotkey_grabbing = 1;
+
+    // disable the window accelerators temporarily
+    hotkey_grabber_button = widget;
 }
 
 void

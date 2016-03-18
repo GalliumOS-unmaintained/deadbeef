@@ -36,7 +36,7 @@ static const char * exts[] = { "psf", "psf2", "spu", "ssf", "qsf", "dsf", "minip
 typedef struct {
     DB_fileinfo_t info;
     int currentsample;
-    uint32 type;
+    int type;
     void *decoder;
     char *filebuffer;
     size_t filesize;
@@ -112,8 +112,10 @@ static void
 aoplug_free (DB_fileinfo_t *_info) {
     aoplug_info_t *info = (aoplug_info_t *)_info;
     if (info) {
-        if (info->filebuffer) {
+        if (info->type >= 0) {
             ao_stop (info->type, info->decoder);
+        }
+        if (info->filebuffer) {
             free (info->filebuffer);
             info->filebuffer = NULL;
         }
@@ -214,7 +216,7 @@ static DB_playItem_t *
 aoplug_insert (ddb_playlist_t *plt, DB_playItem_t *after, const char *fname) {
     DB_FILE *fp = deadbeef->fopen (fname);
     if (!fp) {
-        trace ("psf: failed to fopen %s\n", fname);
+        fprintf (stderr, "psf: failed to fopen %s\n", fname);
         return NULL;
     }
 
@@ -237,6 +239,7 @@ aoplug_insert (ddb_playlist_t *plt, DB_playItem_t *after, const char *fname) {
 
     int type = ao_identify (buffer);
     if (type < 0) {
+        fprintf (stderr, "aosdk can't identify the contents of the file %s\n", fname);
         free (buffer);
         return NULL;
     }

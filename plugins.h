@@ -100,6 +100,9 @@ plug_get_plugin_dir (void);
 const char *
 plug_get_pixmap_dir (void);
 
+const char *
+plug_get_system_dir (int dir_id);
+
 int
 plug_activate (DB_plugin_t *plug, int activate);
 
@@ -144,5 +147,11 @@ background_job_decrement (void);
 
 int
 have_background_jobs (void);
+
+void
+action_set_playlist (ddb_playlist_t *plt);
+
+ddb_playlist_t *
+action_get_playlist (void);
 
 #endif // __PLUGINS_H

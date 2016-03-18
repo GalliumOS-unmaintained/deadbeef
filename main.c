@@ -4,7 +4,7 @@
 
   application launcher, compatible with GNU/Linux and most other POSIX systems
 
-  Copyright (C) 2009-2013 Alexey Yakovenko
+  Copyright (C) 2009-2016 Alexey Yakovenko
 
   This software is provided 'as-is', without any express or implied
   warranty.  In no event will the authors be held liable for any damages
@@ -51,7 +51,7 @@
 #include <sys/fcntl.h>
 #include <sys/errno.h>
 #include <signal.h>
-#ifdef __linux__
+#ifdef __GLIBC__
 #include <execinfo.h>
 #endif
 #include <unistd.h>
@@ -65,6 +65,11 @@
 #include "plugins.h"
 #include "common.h"
 #include "junklib.h"
+#ifdef HAVE_COCOAUI
+#include "cocoautil.h"
+#endif
+#include "playqueue.h"
+#include "tf.h"
 
 #ifndef PREFIX
 #error PREFIX must be defined
@@ -72,6 +77,12 @@
 
 //#define trace(...) { fprintf(stderr, __VA_ARGS__); }
 #define trace(fmt,...)
+
+#ifdef HAVE_COCOAUI
+#define SYS_CONFIG_DIR "Library/Preferences"
+#else
+#define SYS_CONFIG_DIR ".config"
+#endif
 
 // some common global variables
 char sys_install_path[PATH_MAX]; // see deadbeef->get_prefix
@@ -81,12 +92,15 @@ char dbinstalldir[PATH_MAX]; // see deadbeef->get_prefix
 char dbdocdir[PATH_MAX]; // see deadbeef->get_doc_dir
 char dbplugindir[PATH_MAX]; // see deadbeef->get_plugin_dir
 char dbpixmapdir[PATH_MAX]; // see deadbeef->get_pixmap_dir
+char dbcachedir[PATH_MAX];
 
 char use_gui_plugin[100];
 
 static void
 print_help (void) {
+#ifdef ENABLE_NLS
 	bind_textdomain_codeset (PACKAGE, "");
+#endif
     fprintf (stdout, _("Usage: deadbeef [options] [--] [file(s)]\n"));
     fprintf (stdout, _("Options:\n"));
     fprintf (stdout, _("   --help  or  -h     Print help (this message) and exit\n"));
@@ -106,9 +120,15 @@ print_help (void) {
     fprintf (stdout, _("                      FMT %%-syntax: [a]rtist, [t]itle, al[b]um,\n"
                 "                      [l]ength, track[n]umber, [y]ear, [c]omment,\n"
                 "                      copy[r]ight, [e]lapsed\n"));
-    fprintf (stdout, _("                      e.g.: --nowplaying \"%%a - %%t\" should print \"artist - title\"\n"));
+    fprintf (stdout, _("                      example: --nowplaying \"%%a - %%t\" should print \"artist - title\"\n"));
     fprintf (stdout, _("                      for more info, see %s\n"), "http://github.com/Alexey-Yakovenko/deadbeef/wiki/Title-formatting");
+    fprintf (stdout, _("                      NOTE: --nowplaying is deprecated.\n"));
+    fprintf (stdout, _("   --nowplaying-tf FMT  Print formatted track name to stdout, using the new title formatting\n"));
+    fprintf (stdout, _("                      FMT syntax: http://github.com/Alexey-Yakovenko/deadbeef/wiki/Title-formatting-2.0\n"));
+    fprintf (stdout, _("                      example: --nowplaying-tf \"%%artist%% - %%title%%\" should print \"artist - title\"\n"));
+#ifdef ENABLE_NLS
 	bind_textdomain_codeset (PACKAGE, "UTF-8");
+#endif
 }
 
 // Parse command line an return a single buffer with all
@@ -180,47 +200,81 @@ server_exec_command_line (const char *cmdline, int len, char *sendback, int sbsi
     const uint8_t *pend = cmdline + len;
     int queue = 0;
     while (parg < pend) {
-        if (!strcmp (parg, "--nowplaying")) {
+        const char *parg_c = parg;
+        if (strlen (parg) >= 2 && parg[0] == '-' && parg[1] != '-') {
+            parg += strlen (parg);
+            parg++;
+            return 0; // running under osx debugger?
+        }
+        else if (!strcmp (parg, "--nowplaying")) {
             parg += strlen (parg);
             parg++;
             if (parg >= pend) {
+                const char *errtext = "--nowplaying expects format argument";
                 if (sendback) {
-                    snprintf (sendback, sbsize, "error --nowplaying expects format argument\n");
+                    snprintf (sendback, sbsize, "error %s\n", errtext);
                     return 0;
                 }
                 else {
-                    fprintf (stderr, "--nowplaying expects format argument\n");
+                    fprintf (stderr, "%s\n", errtext);
                     return -1;
                 }
             }
-            if (sendback) {
-                playItem_t *curr = streamer_get_playing_track ();
-                DB_fileinfo_t *dec = streamer_get_current_fileinfo ();
-                if (curr && dec) {
-                    const char np[] = "nowplaying ";
-                    memcpy (sendback, np, sizeof (np)-1);
-                    pl_format_title (curr, -1, sendback+sizeof(np)-1, sbsize-sizeof(np)+1, -1, parg);
-                }
-                else {
-                    strcpy (sendback, "nowplaying nothing");
-                }
-                if (curr) {
-                    pl_item_unref (curr);
-                }
+            char out[2048];
+            playItem_t *curr = streamer_get_playing_track ();
+            if (curr) {
+                pl_format_title (curr, -1, out, sizeof (out), -1, parg);
+                pl_item_unref (curr);
             }
             else {
-                char out[2048];
-                playItem_t *curr = streamer_get_playing_track ();
-                DB_fileinfo_t *dec = streamer_get_current_fileinfo();
-                if (curr && dec) {
-                    pl_format_title (curr, -1, out, sizeof (out), -1, parg);
+                strcpy (out, "nothing");
+            }
+            if (sendback) {
+                snprintf (sendback, sbsize, "nowplaying %s", out);
+            }
+            else {
+                fwrite (out, 1, strlen (out), stdout);
+                return 1; // exit
+            }
+        }
+        else if (!strcmp (parg, "--nowplaying-tf")) {
+            parg += strlen (parg);
+            parg++;
+            if (parg >= pend) {
+                const char *errtext = "--nowplaying expects format argument";
+                if (sendback) {
+                    snprintf (sendback, sbsize, "error %s\n", errtext);
+                    return 0;
+                }
+                else {
+                    fprintf (stderr, "%s\n", errtext);
+                    return -1;
+                }
+            }
+            char out[2048];
+            playItem_t *curr = streamer_get_playing_track ();
+            if (curr) {
+                char *script = tf_compile (parg);
+                if (script) {
+                    ddb_tf_context_t ctx = {
+                        ._size = sizeof (ddb_tf_context_t),
+                        .it = (DB_playItem_t *)curr,
+                    };
+                    tf_eval (&ctx, script, out, sizeof (out));
+                    tf_free (script);
                 }
                 else {
                     strcpy (out, "nothing");
                 }
-                if (curr) {
-                    pl_item_unref (curr);
-                }
+                pl_item_unref (curr);
+            }
+            else {
+                strcpy (out, "nothing");
+            }
+            if (sendback) {
+                snprintf (sendback, sbsize, "nowplaying %s", out);
+            }
+            else {
                 fwrite (out, 1, strlen (out), stdout);
                 return 1; // exit
             }
@@ -316,7 +370,7 @@ server_exec_command_line (const char *cmdline, int len, char *sendback, int sbsi
         // add files
         if (!queue) {
             plt_clear (curr_plt);
-            messagepump_push (DB_EV_PLAYLISTCHANGED, 0, 0, 0);
+            messagepump_push (DB_EV_PLAYLISTCHANGED, 0, DDB_PLAYLIST_CHANGE_CONTENT, 0);
             plt_reset_cursor (curr_plt);
         }
         while (parg < pend) {
@@ -340,7 +394,8 @@ server_exec_command_line (const char *cmdline, int len, char *sendback, int sbsi
             parg += strlen (parg);
             parg++;
         }
-        messagepump_push (DB_EV_PLAYLIST_REFRESH, 0, 0, 0);
+        pl_save_current ();
+        messagepump_push (DB_EV_PLAYLISTCHANGED, 0, DDB_PLAYLIST_CHANGE_CONTENT, 0);
         plt_add_files_end (curr_plt, 0);
         plt_unref (curr_plt);
         if (!queue) {
@@ -560,7 +615,7 @@ player_mainloop (void) {
                     {
                         save_resume_state ();
 
-                        pl_playqueue_clear ();
+                        playqueue_clear ();
 
                         // stop streaming and playback before unloading plugins
                         DB_output_t *output = plug_get_output ();
@@ -574,7 +629,7 @@ player_mainloop (void) {
                     streamer_play_current_track ();
                     break;
                 case DB_EV_PLAY_NUM:
-                    pl_playqueue_clear ();
+                    playqueue_clear ();
                     streamer_set_nextsong (p1, 4);
                     break;
                 case DB_EV_STOP:
@@ -604,10 +659,6 @@ player_mainloop (void) {
                 case DB_EV_PLAY_RANDOM:
                     streamer_move_to_randomsong (1);
                     break;
-                case DB_EV_PLAYLIST_REFRESH:
-                    pl_save_current ();
-                    messagepump_push (DB_EV_PLAYLISTCHANGED, 0, 0, 0);
-                    break;
                 case DB_EV_CONFIGCHANGED:
                     conf_save ();
                     streamer_configchanged ();
@@ -629,7 +680,7 @@ player_mainloop (void) {
     }
 }
 
-#ifdef __linux__
+#ifdef __GLIBC__
 void
 sigsegv_handler (int sig) {
     fprintf (stderr, "Segmentation Fault\n");
@@ -693,6 +744,48 @@ plug_get_gui (void) {
     return NULL;
 }
 
+void
+main_cleanup_and_quit (void) {
+    // terminate server and wait for completion
+    if (server_tid) {
+        server_terminate = 1;
+        thread_join (server_tid);
+        server_tid = 0;
+    }
+
+    // save config
+    pl_save_all ();
+    conf_save ();
+
+    // delete legacy session file
+    {
+        char sessfile[1024]; // $HOME/.config/deadbeef/session
+        if (snprintf (sessfile, sizeof (sessfile), "%s/deadbeef/session", confdir) < sizeof (sessfile)) {
+            unlink (sessfile);
+        }
+    }
+
+    // stop receiving messages from outside
+    server_close ();
+
+    // plugins might still hold references to playitems,
+    // and query configuration in background
+    // so unload everything 1st before final cleanup
+    plug_disconnect_all ();
+    plug_unload_all ();
+
+    // at this point we can simply do exit(0), but let's clean up for debugging
+    pl_free (); // may access conf_*
+    conf_free ();
+
+    fprintf (stderr, "messagepump_free\n");
+    messagepump_free ();
+    fprintf (stderr, "plug_cleanup\n");
+    plug_cleanup ();
+
+    fprintf (stderr, "hej-hej!\n");
+}
+
 static void
 mainloop_thread (void *ctx) {
     // this runs until DB_EV_TERMINATE is sent (blocks right here)
@@ -700,6 +793,9 @@ mainloop_thread (void *ctx) {
 
     // tell the gui thread to finish
     DB_plugin_t *gui = plug_get_gui ();
+#if HAVE_COCOAUI
+    main_cleanup_and_quit();
+#endif
     if (gui) {
         gui->stop ();
     }
@@ -748,7 +844,7 @@ main (int argc, char *argv[]) {
     }
 #endif
 
-#ifdef __linux__
+#ifdef __GLIBC__
     signal (SIGSEGV, sigsegv_handler);
 #endif
     setlocale (LC_ALL, "");
@@ -780,6 +876,11 @@ main (int argc, char *argv[]) {
     }
 
     strcpy (dbconfdir, confdir);
+
+    if (snprintf (confdir, sizeof (confdir), "%s/cache", dbcachedir) > sizeof (confdir)) {
+        fprintf (stderr, "fatal: too long cache path %s\n", dbcachedir);
+        return -1;
+    }
 #else
     char *homedir = getenv ("HOME");
     if (!homedir) {
@@ -795,7 +896,7 @@ main (int argc, char *argv[]) {
         }
     }
     else {
-        if (snprintf (confdir, sizeof (confdir), "%s/.config", homedir) > sizeof (confdir)) {
+        if (snprintf (confdir, sizeof (confdir), "%s/" SYS_CONFIG_DIR, homedir) > sizeof (confdir)) {
             fprintf (stderr, "fatal: HOME value is too long: %s\n", homedir);
             return -1;
         }
@@ -805,6 +906,13 @@ main (int argc, char *argv[]) {
         return -1;
     }
     mkdir (confdir, 0755);
+
+    const char *xdg_cache = getenv("XDG_CACHE_HOME");
+    const char *cache_root = xdg_cache ? xdg_cache : getenv("HOME");
+    if (snprintf(dbcachedir, sizeof (dbcachedir), xdg_cache ? "%s/deadbeef/" : "%s/.cache/deadbeef/", cache_root) >= sizeof (dbcachedir)) {
+        fprintf (stderr, "fatal: too long cache path %s\n", dbcachedir);
+        return -1;
+    }
 #endif
 
 
@@ -813,10 +921,19 @@ main (int argc, char *argv[]) {
             fprintf (stderr, "fatal: too long install path %s\n", dbinstalldir);
             return -1;
         }
+#ifdef HAVE_COCOAUI
+        char respath[PATH_MAX];
+        cocoautil_get_resources_path (respath, sizeof (respath));
+        if (snprintf (dbplugindir, sizeof (dbplugindir), "%s", respath) > sizeof (dbplugindir)) {
+            fprintf (stderr, "fatal: too long install path %s\n", dbinstalldir);
+            return -1;
+        }
+#else
         if (snprintf (dbplugindir, sizeof (dbplugindir), "%s/plugins", dbinstalldir) > sizeof (dbplugindir)) {
             fprintf (stderr, "fatal: too long install path %s\n", dbinstalldir);
             return -1;
         }
+#endif
         if (snprintf (dbpixmapdir, sizeof (dbpixmapdir), "%s/pixmaps", dbinstalldir) > sizeof (dbpixmapdir)) {
             fprintf (stderr, "fatal: too long install path %s\n", dbinstalldir);
             return -1;
@@ -828,7 +945,15 @@ main (int argc, char *argv[]) {
             fprintf (stderr, "fatal: too long install path %s\n", dbinstalldir);
             return -1;
         }
-        if (snprintf (dbplugindir, sizeof (dbplugindir), "%s/deadbeef", LIBDIR) > sizeof (dbplugindir)) {
+        char *env_plugin_dir = getenv ("DEADBEEF_PLUGIN_DIR");
+        if (env_plugin_dir) {
+            strncpy (dbplugindir, env_plugin_dir, sizeof(dbplugindir));
+            if (dbplugindir[sizeof(dbplugindir) - 1] != 0) {
+                fprintf (stderr, "fatal: too long plugin path %s\n", env_plugin_dir);
+                return -1;
+            }
+        }
+        else if (snprintf (dbplugindir, sizeof (dbplugindir), "%s/deadbeef", LIBDIR) > sizeof (dbplugindir)) {
             fprintf (stderr, "fatal: too long install path %s\n", dbinstalldir);
             return -1;
         }
@@ -845,7 +970,7 @@ main (int argc, char *argv[]) {
             return 0;
         }
         else if (!strcmp (argv[i], "--version")) {
-            fprintf (stderr, "DeaDBeeF " VERSION " Copyright © 2009-2013 Alexey Yakovenko\n");
+            fprintf (stderr, "DeaDBeeF " VERSION " Copyright © 2009-2016 Alexey Yakovenko\n");
             return 0;
         }
         else if (!strcmp (argv[i], "--gui")) {
@@ -1001,49 +1126,11 @@ main (int argc, char *argv[]) {
     if (gui) {
         gui->start ();
     }
-
+    
     fprintf (stderr, "gui plugin has quit; waiting for mainloop thread to finish\n");
     thread_join (mainloop_tid);
 
-    // terminate server and wait for completion
-    if (server_tid) {
-        server_terminate = 1;
-        thread_join (server_tid);
-        server_tid = 0;
-    }
-
-    // save config
-    pl_save_all ();
-    conf_save ();
-
-    // delete legacy session file
-    {
-        char sessfile[1024]; // $HOME/.config/deadbeef/session
-        if (snprintf (sessfile, sizeof (sessfile), "%s/deadbeef/session", confdir) < sizeof (sessfile)) {
-            unlink (sessfile);
-        }
-    }
-
-    // stop receiving messages from outside
-    server_close ();
-
-    // plugins might still hold references to playitems,
-    // and query configuration in background
-    // so unload everything 1st before final cleanup
-    plug_disconnect_all ();
-    plug_unload_all ();
-
-    // at this point we can simply do exit(0), but let's clean up for debugging
-    pl_free (); // may access conf_*
-    conf_free ();
-
-    fprintf (stderr, "messagepump_free\n");
-    messagepump_free ();
-    fprintf (stderr, "plug_cleanup\n");
-    plug_cleanup ();
-
-    fprintf (stderr, "hej-hej!\n");
-
+    main_cleanup_and_quit ();
     return 0;
 }
 

@@ -1,4 +1,4 @@
-// Game_Music_Emu 0.6-pre. http://www.slack.net/~ant/
+// Game_Music_Emu $vers. http://www.slack.net/~ant/
 
 #include "Sap_Apu.h"
 
@@ -94,6 +94,7 @@ void Sap_Apu::reset( Sap_Apu_Impl* new_impl )
 }
 
 static byte fast_bits [Sap_Apu::osc_count] = { 1 << 6, 1 << 4, 1 << 5, 1 << 3 };
+
 void Sap_Apu::calc_periods()
 {
 	 // 15/64 kHz clock

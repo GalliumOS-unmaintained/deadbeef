@@ -1,3 +1,26 @@
+/*
+    DeaDBeeF -- the music player
+    Copyright (C) 2009-2015 Alexey Yakovenko and other contributors
+
+    This software is provided 'as-is', without any express or implied
+    warranty.  In no event will the authors be held liable for any damages
+    arising from the use of this software.
+
+    Permission is granted to anyone to use this software for any purpose,
+    including commercial applications, and to alter it and redistribute it
+    freely, subject to the following restrictions:
+
+    1. The origin of this software must not be misrepresented; you must not
+     claim that you wrote the original software. If you use this software
+     in a product, an acknowledgment in the product documentation would be
+     appreciated but is not required.
+
+    2. Altered source versions must be plainly marked as such, and must not be
+     misrepresented as being the original software.
+
+    3. This notice may not be removed or altered from any source distribution.
+*/
+
 #include "../../deadbeef.h"
 #include <gtk/gtk.h>
 #include <stdlib.h>
@@ -112,14 +135,14 @@ open_files_worker (void *data) {
     deadbeef->pl_save_current ();
     deadbeef->pl_set_cursor (PL_MAIN, 0);
     deadbeef->conf_save ();
-    deadbeef->sendmessage (DB_EV_PLAYLISTCHANGED, 0, 0, 0);
+    deadbeef->sendmessage (DB_EV_PLAYLISTCHANGED, 0, DDB_PLAYLIST_CHANGE_CONTENT, 0);
     deadbeef->sendmessage (DB_EV_PLAY_NUM, 0, 0, 0);
 }
 
 void
 gtkui_open_files (struct _GSList *lst) {
     deadbeef->pl_clear ();
-    deadbeef->sendmessage (DB_EV_PLAYLISTCHANGED, 0, 0, 0);
+    deadbeef->sendmessage (DB_EV_PLAYLISTCHANGED, 0, DDB_PLAYLIST_CHANGE_CONTENT, 0);
 
     intptr_t tid = deadbeef->thread_start (open_files_worker, lst);
     deadbeef->thread_detach (tid);
@@ -171,12 +194,12 @@ static gboolean
 set_dnd_cursor_idle (gpointer data) {
     if (!data) {
         deadbeef->pl_set_cursor (PL_MAIN, -1);
-        deadbeef->sendmessage (DB_EV_PLAYLISTCHANGED, 0, 0, 0);
+        deadbeef->sendmessage (DB_EV_PLAYLISTCHANGED, 0, DDB_PLAYLIST_CHANGE_CONTENT, 0);
         return FALSE;
     }
     int cursor = deadbeef->pl_get_idx_of (DB_PLAYITEM (data));
     deadbeef->pl_set_cursor (PL_MAIN, cursor);
-    deadbeef->sendmessage (DB_EV_PLAYLISTCHANGED, 0, 0, 0);
+    deadbeef->sendmessage (DB_EV_PLAYLISTCHANGED, 0, DDB_PLAYLIST_CHANGE_CONTENT, 0);
     return FALSE;
 }
 
